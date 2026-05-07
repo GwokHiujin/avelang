@@ -1,0 +1,15 @@
+include CMakeLists.txt
+include CHANGELOG.md
+include CONTRIBUTING.md
+include LICENSE.txt
+include README.md
+include SECURITY.md
+include pyproject.toml
+include setup.py
+recursive-include cmake *.cmake
+recursive-include include *.in
+recursive-include lib CMakeLists.txt *.cc *.h *.inl *.td *.mlir
+recursive-include python CMakeLists.txt *.cc *.c *.py *.typed
+recursive-include benchmark *.py
+recursive-include test *.py
+recursive-include tools *.py

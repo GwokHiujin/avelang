@@ -1,0 +1,75 @@
+[build-system]
+requires = ["pybind11", "setuptools>=45", "wheel", "cmake>=3.25", "ninja"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ave-lang"
+version = "0.1.0"
+description = "A JIT compiler for GPU kernels following Triton-style programming patterns."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE.txt"}
+authors = [
+    {name = "CausalFlow Inc."},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Compilers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "torch>=2.0",
+    "numpy",
+]
+
+[project.optional-dependencies]
+cuda = ["pycuda>=2021.1"]
+rocm = []
+dev = [
+    "pytest",
+    "ruff",
+    "isort",
+]
+
+[tool.setuptools]
+package-dir = {"" = "python"}
+
+[tool.setuptools.packages.find]
+where = ["python"]
+include = ["avelang*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+avelang = ["py.typed"]
+"avelang.backends.nvidia" = ["driver.c"]
+"avelang.backends.amdgpu" = ["driver.c"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint.per-file-ignores]
+"python/avelang_kernels/flash_attn.py" = ["E741"]
+
+[tool.pytest.ini_options]
+markers = [
+    "gpu: requires a CUDA-compatible PyTorch device",
+    "no_gpu: does not require a GPU",
+]
+
+[project.entry-points."avelang.backends"]
+nvidia = "avelang.backends.nvidia"
+amdgpu = "avelang.backends.amdgpu"
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["avelang"]

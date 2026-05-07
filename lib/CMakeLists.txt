@@ -1,0 +1,8 @@
+add_subdirectory(AST)
+add_subdirectory(Frontend)
+add_subdirectory(IR)
+add_subdirectory(Basic)
+add_subdirectory(Utils)
+add_subdirectory(Dialect)
+add_subdirectory(Target)
+add_subdirectory(Driver)
