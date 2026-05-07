@@ -1,0 +1,26 @@
+# Build outputs
+.*
+build/
+dist/
+*.egg-info/
+build-doccheck/
+
+build
+node_modules
+docs/node_modules
+docs/_site
+*.egg-info
+*.pyc
+__pycache__
+*.so
+
+# Python caches and environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+
+# Editor and local-tool state
+.cache/
+
