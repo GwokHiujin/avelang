@@ -70,17 +70,19 @@ def gemm_2stages_pipeline(
 
     # Stage 0: Prefetch first tile (k_tile = 0) into buffer 0
     write_stage = 0
-    for tm in S.range(MMA_TILES_M):
-        for j in S.range(8):
-            global_row = block_row + warp_row_id * (MMA_TILES_M * MMA_M) + tm * MMA_M + row_a
-            global_col = col_a + j
-            a_smem[write_stage, warp_row_id, tm, row_a, col_a + j] = A[global_row, global_col]
+    if warp_col_id == 0:
+        for tm in S.range(MMA_TILES_M):
+            for j in S.range(8):
+                global_row = block_row + warp_row_id * (MMA_TILES_M * MMA_M) + tm * MMA_M + row_a
+                global_col = col_a + j
+                a_smem[write_stage, warp_row_id, tm, row_a, col_a + j] = A[global_row, global_col]
 
-    for tn in S.range(MMA_TILES_N):
-        for j in S.range(8):
-            global_row = col_b + j
-            global_col = block_col + warp_col_id * (MMA_TILES_N * MMA_N) + tn * MMA_N + row_b
-            b_smem[write_stage, warp_col_id, tn, row_b, col_b + j] = B[global_row, global_col]
+    if warp_row_id == 0:
+        for tn in S.range(MMA_TILES_N):
+            for j in S.range(8):
+                global_row = col_b + j
+                global_col = block_col + warp_col_id * (MMA_TILES_N * MMA_N) + tn * MMA_N + row_b
+                b_smem[write_stage, warp_col_id, tn, row_b, col_b + j] = B[global_row, global_col]
 
     S.syncthreads()
 
@@ -91,17 +93,19 @@ def gemm_2stages_pipeline(
 
         # Prefetch next tile
         next_k = k_tile + 1
-        for tm in S.range(MMA_TILES_M):
-            for j in S.range(8):
-                global_row = block_row + warp_row_id * (MMA_TILES_M * MMA_M) + tm * MMA_M + row_a
-                global_col = next_k * MMA_K + col_a + j
-                a_smem[write_stage, warp_row_id, tm, row_a, col_a + j] = A[global_row, global_col]
+        if warp_col_id == 0:
+            for tm in S.range(MMA_TILES_M):
+                for j in S.range(8):
+                    global_row = block_row + warp_row_id * (MMA_TILES_M * MMA_M) + tm * MMA_M + row_a
+                    global_col = next_k * MMA_K + col_a + j
+                    a_smem[write_stage, warp_row_id, tm, row_a, col_a + j] = A[global_row, global_col]
 
-        for tn in S.range(MMA_TILES_N):
-            for j in S.range(8):
-                global_row = next_k * MMA_K + col_b + j
-                global_col = block_col + warp_col_id * (MMA_TILES_N * MMA_N) + tn * MMA_N + row_b
-                b_smem[write_stage, warp_col_id, tn, row_b, col_b + j] = B[global_row, global_col]
+        if warp_row_id == 0:
+            for tn in S.range(MMA_TILES_N):
+                for j in S.range(8):
+                    global_row = next_k * MMA_K + col_b + j
+                    global_col = block_col + warp_col_id * (MMA_TILES_N * MMA_N) + tn * MMA_N + row_b
+                    b_smem[write_stage, warp_col_id, tn, row_b, col_b + j] = B[global_row, global_col]
 
         # Compute all MMA tiles for this warp
         for tm in S.range(MMA_TILES_M):
@@ -109,14 +113,24 @@ def gemm_2stages_pipeline(
                 # Load A tile
                 a_row_offset = lane_id % 16
                 a_col_offset = (lane_id >> 4) * 8
-                a_smem_tile = S.subview(a_smem, (read_stage, warp_row_id, tm, 0, 0), (1, 1, 1, 16, 16), (1, 1, 1, 1, 1))
+                a_smem_tile = S.subview(
+                    a_smem,
+                    (read_stage, warp_row_id, tm, 0, 0),
+                    (1, 1, 1, 16, 16),
+                    (1, 1, 1, 1, 1),
+                )
                 a_tile_2d = S.subview(a_smem_tile, (a_row_offset, a_col_offset), (8, 8), (1, 1))
                 RA = S.nvvm.ldmatrix_m8n8_x4_b16(a_tile_2d)
 
                 # Load B tile
                 b_row_offset = lane_id % 8
                 b_col_offset = ((lane_id >> 3) & 1) * 8
-                b_smem_tile = S.subview(b_smem, (read_stage, warp_col_id, tn, 0, 0), (1, 1, 1, 8, 16), (1, 1, 1, 1, 1))
+                b_smem_tile = S.subview(
+                    b_smem,
+                    (read_stage, warp_col_id, tn, 0, 0),
+                    (1, 1, 1, 8, 16),
+                    (1, 1, 1, 1, 1),
+                )
                 b_tile_2d = S.subview(b_smem_tile, (b_row_offset, b_col_offset), (8, 8), (1, 1))
                 RB = S.nvvm.ldmatrix_m8n8_x2_b16(b_tile_2d)
 
@@ -139,7 +153,10 @@ def gemm_2stages_pipeline(
             a_row_offset = lane_id % 16
             a_col_offset = (lane_id >> 4) * 8
             a_smem_tile_last = S.subview(
-                a_smem, (last_stage, warp_row_id, tm, 0, 0), (1, 1, 1, 16, 16), (1, 1, 1, 1, 1)
+                a_smem,
+                (last_stage, warp_row_id, tm, 0, 0),
+                (1, 1, 1, 16, 16),
+                (1, 1, 1, 1, 1),
             )
             a_tile_2d_last = S.subview(a_smem_tile_last, (a_row_offset, a_col_offset), (8, 8), (1, 1))
             RA = S.nvvm.ldmatrix_m8n8_x4_b16(a_tile_2d_last)
@@ -147,7 +164,12 @@ def gemm_2stages_pipeline(
             # Load B tile
             b_row_offset = lane_id % 8
             b_col_offset = ((lane_id >> 3) & 1) * 8
-            b_smem_tile_last = S.subview(b_smem, (last_stage, warp_col_id, tn, 0, 0), (1, 1, 1, 8, 16), (1, 1, 1, 1, 1))
+            b_smem_tile_last = S.subview(
+                b_smem,
+                (last_stage, warp_col_id, tn, 0, 0),
+                (1, 1, 1, 8, 16),
+                (1, 1, 1, 1, 1),
+            )
             b_tile_2d_last = S.subview(b_smem_tile_last, (b_row_offset, b_col_offset), (8, 8), (1, 1))
             RB = S.nvvm.ldmatrix_m8n8_x2_b16(b_tile_2d_last)
 
