@@ -40,6 +40,7 @@
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
 #include <mlir/Dialect/GPU/Transforms/Passes.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
+#include <mlir/Dialect/LLVMIR/NVVMDialect.h>
 #include <mlir/Dialect/LLVMIR/Transforms/InlinerInterfaceImpl.h>
 #include <mlir/Dialect/Math/IR/Math.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
@@ -65,8 +66,7 @@ using namespace mlir;
 namespace {
 
 static Value convertLLVMIntegerPlain(Value value, IntegerType targetType,
-                                     Location loc,
-                                     PatternRewriter &rewriter) {
+                                     Location loc, PatternRewriter &rewriter) {
     if (value.getType() == targetType) {
         return value;
     }
@@ -124,11 +124,11 @@ widenPointerArithmeticToI64(Value value, Location loc,
     }
 
     Value lhs = lhsPointer ? *lhsPointer
-                           : convertLLVMIntegerPlain(
-                                 add.getLhs(), i64Type, loc, rewriter);
+                           : convertLLVMIntegerPlain(add.getLhs(), i64Type, loc,
+                                                     rewriter);
     Value rhs = rhsPointer ? *rhsPointer
-                           : convertLLVMIntegerPlain(
-                                 add.getRhs(), i64Type, loc, rewriter);
+                           : convertLLVMIntegerPlain(add.getRhs(), i64Type, loc,
+                                                     rewriter);
     if (!lhs || !rhs) {
         return std::nullopt;
     }
@@ -136,8 +136,7 @@ widenPointerArithmeticToI64(Value value, Location loc,
 }
 
 static Value convertLLVMInteger(Value value, IntegerType targetType,
-                                Location loc,
-                                PatternRewriter &rewriter) {
+                                Location loc, PatternRewriter &rewriter) {
     auto sourceType = dyn_cast<IntegerType>(value.getType());
     if (sourceType && sourceType.getWidth() == 32 &&
         targetType.getWidth() == 64) {
@@ -205,19 +204,19 @@ reconcileMemRefDescriptorMetadata(Value source,
     for (int64_t field : {0, 1}) {
         Value ptr = LLVM::ExtractValueOp::create(
             rewriter, loc, targetBody[field], source, ArrayRef<int64_t>{field});
-        result = LLVM::InsertValueOp::create(
-            rewriter, loc, targetType, result, ptr, ArrayRef<int64_t>{field});
+        result = LLVM::InsertValueOp::create(rewriter, loc, targetType, result,
+                                             ptr, ArrayRef<int64_t>{field});
     }
 
-    Value offset = LLVM::ExtractValueOp::create(
-        rewriter, loc, sourceBody[2], source, ArrayRef<int64_t>{2});
+    Value offset = LLVM::ExtractValueOp::create(rewriter, loc, sourceBody[2],
+                                                source, ArrayRef<int64_t>{2});
     offset = convertLLVMInteger(offset, cast<IntegerType>(targetBody[2]), loc,
                                 rewriter);
     result = LLVM::InsertValueOp::create(rewriter, loc, targetType, result,
                                          offset, ArrayRef<int64_t>{2});
 
-    auto targetElementType = cast<LLVM::LLVMArrayType>(targetBody[3])
-                                 .getElementType();
+    auto targetElementType =
+        cast<LLVM::LLVMArrayType>(targetBody[3]).getElementType();
     for (int64_t field : {3, 4}) {
         for (int64_t index = 0; index < sourceRank; ++index) {
             Value metadata = LLVM::ExtractValueOp::create(
@@ -240,9 +239,8 @@ class ReconcileNVGPUIndex32CastsPattern
   public:
     using OpRewritePattern<UnrealizedConversionCastOp>::OpRewritePattern;
 
-    LogicalResult
-    matchAndRewrite(UnrealizedConversionCastOp op,
-                    PatternRewriter &rewriter) const override {
+    LogicalResult matchAndRewrite(UnrealizedConversionCastOp op,
+                                  PatternRewriter &rewriter) const override {
         if (op.getInputs().size() != 1 || op.getOutputs().size() != 1) {
             return failure();
         }
@@ -251,8 +249,7 @@ class ReconcileNVGPUIndex32CastsPattern
         Type outputType = op.getOutputs()[0].getType();
 
         if (auto targetInteger = dyn_cast<IntegerType>(outputType)) {
-            auto indexCast =
-                input.getDefiningOp<UnrealizedConversionCastOp>();
+            auto indexCast = input.getDefiningOp<UnrealizedConversionCastOp>();
             if (!indexCast || indexCast.getInputs().size() != 1 ||
                 indexCast.getOutputs().size() != 1 ||
                 !indexCast.getOutputs()[0].getType().isIndex()) {
@@ -264,8 +261,8 @@ class ReconcileNVGPUIndex32CastsPattern
                 return failure();
             }
 
-            Value converted = convertLLVMInteger(
-                integerInput, targetInteger, op.getLoc(), rewriter);
+            Value converted = convertLLVMInteger(integerInput, targetInteger,
+                                                 op.getLoc(), rewriter);
             if (!converted) {
                 return failure();
             }
@@ -321,17 +318,63 @@ class ReconcileNVGPUIndex32CastsPass
     : public PassWrapper<ReconcileNVGPUIndex32CastsPass,
                          OperationPass<ModuleOp>> {
   public:
-    MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(
-        ReconcileNVGPUIndex32CastsPass)
+    MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ReconcileNVGPUIndex32CastsPass)
 
     void runOnOperation() override {
+        Builder builder(&getContext());
+        WalkResult abiResult = getOperation().walk([&](LLVM::LLVMFuncOp func) {
+            auto descriptorIndices = func->getAttrOfType<DenseI32ArrayAttr>(
+                "ave.nv_tma_desc_indices");
+            if (!descriptorIndices) {
+                return WalkResult::advance();
+            }
+
+            if (!func->hasAttr(
+                    NVVM::NVVMDialect::getKernelFuncAttrName())) {
+                func.emitError() << "TMA descriptors are only supported on "
+                                    "kernel arguments";
+                return WalkResult::interrupt();
+            }
+
+            auto descriptorBytes = LLVM::LLVMArrayType::get(
+                &getContext(), builder.getI8Type(), 128);
+            for (int32_t argIndex : descriptorIndices.asArrayRef()) {
+                if (argIndex < 0 ||
+                    static_cast<unsigned>(argIndex) >=
+                        func.getNumArguments() ||
+                    !isa<LLVM::LLVMPointerType>(
+                        func.getArgument(argIndex).getType())) {
+                    func.emitError() << "invalid TMA descriptor argument index "
+                                     << argIndex;
+                    return WalkResult::interrupt();
+                }
+
+                // nvTmaDesc ABI: a descriptor is an aligned, by-value grid-constant CUtensorMap kernel argument.
+                func.setArgAttr(argIndex,
+                                LLVM::LLVMDialect::getByValAttrName(),
+                                TypeAttr::get(descriptorBytes));
+                func.setArgAttr(
+                    argIndex, NVVM::NVVMDialect::getGridConstantAttrName(),
+                    builder.getUnitAttr());
+                func.setArgAttr(argIndex,
+                                LLVM::LLVMDialect::getAlignAttrName(),
+                                builder.getI64IntegerAttr(64));
+            }
+            func->removeAttr("ave.nv_tma_desc_indices");
+            return WalkResult::advance();
+        });
+        if (abiResult.wasInterrupted()) {
+            signalPassFailure();
+            return;
+        }
+
         RewritePatternSet patterns(&getContext());
         patterns.add<ReconcileNVGPUIndex32CastsPattern,
                      WidenPointerArithmeticExtPattern<LLVM::SExtOp>,
                      WidenPointerArithmeticExtPattern<LLVM::ZExtOp>>(
             &getContext());
-        if (failed(applyPatternsGreedily(getOperation(),
-                                         std::move(patterns)))) {
+        if (failed(
+                applyPatternsGreedily(getOperation(), std::move(patterns)))) {
             signalPassFailure();
         }
     }
@@ -531,6 +574,23 @@ class LowerToLLVM::Impl {
             llvm::errs() << "Expected exactly one GPU module after lowering, "
                          << "found " << gpuModules.size() << "\n";
             return nullptr;
+        }
+
+        // NVGPU TMA descriptor lowering materializes this helper as a top-level
+        // llvm.func on the builtin.module, but we translate the nested
+        // gpu.module in isolation. Ensure the declaration exists in the
+        // translated symbol scope.
+        constexpr llvm::StringLiteral kTensorMapEncodeFn =
+            "mgpuTensorMapEncodeTiledMemref";
+        if (auto topLevelFn = module.lookupSymbol<mlir::LLVM::LLVMFuncOp>(
+                kTensorMapEncodeFn)) {
+            auto gpuModule = gpuModules[0];
+            if (!gpuModule.lookupSymbol<mlir::LLVM::LLVMFuncOp>(
+                    kTensorMapEncodeFn)) {
+                mlir::OpBuilder builder(gpuModule.getContext());
+                builder.setInsertionPointToEnd(gpuModule.getBody());
+                builder.clone(*topLevelFn.getOperation());
+            }
         }
 
         // Translate MLIR to LLVM IR

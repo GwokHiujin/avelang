@@ -57,8 +57,12 @@ mlir::Attribute normalizeBuiltinMemorySpace(mlir::MLIRContext *context,
         case mlir::gpu::AddressSpace::Private:
             return {};
         case mlir::gpu::AddressSpace::Global:
+            return mlir::IntegerAttr::get(
+                mlir::IntegerType::get(context, 64), 1);
         case mlir::gpu::AddressSpace::Workgroup:
-            return memorySpace;
+            // NVVM memref conversion requires numeric CUDA address spaces.
+            return mlir::IntegerAttr::get(
+                mlir::IntegerType::get(context, 64), 3);
         }
     }
     return memorySpace;

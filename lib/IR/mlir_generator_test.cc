@@ -1319,10 +1319,14 @@ def alloc_shared_aligned_test(output: S.Tensor((1,), S.i32)):
             shape.size() != 1 || shape[0] != 32) {
             return;
         }
-        auto addrSpace = mlir::dyn_cast_or_null<mlir::gpu::AddressSpaceAttr>(
-            memrefType.getMemorySpace());
-        if (!addrSpace ||
-            addrSpace.getValue() != mlir::gpu::AddressSpace::Workgroup) {
+        auto memorySpace = memrefType.getMemorySpace();
+        auto addrSpace =
+            mlir::dyn_cast_or_null<mlir::gpu::AddressSpaceAttr>(memorySpace);
+        auto integerSpace =
+            mlir::dyn_cast_or_null<mlir::IntegerAttr>(memorySpace);
+        if ((!addrSpace ||
+             addrSpace.getValue() != mlir::gpu::AddressSpace::Workgroup) &&
+            (!integerSpace || integerSpace.getInt() != 3)) {
             return;
         }
 
@@ -1413,6 +1417,20 @@ def stmatrix_comprehensive_test(data1: S.i32,
     S.nvvm.stmatrix_m8n8_x1_b16(shared_mem, data1)
     S.nvvm.stmatrix_m8n8_x2_b16(shared_mem, data2)
     S.nvvm.stmatrix_m8n8_x4_b16(shared_mem, data4)
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMMakeTMADescriptor) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def tma_descriptor_test(global_mem: S.Tensor((16, 16), S.f32)):
+    smem_layout = S.make_layout((16, 16), (16, 1))
+    desc = S.nvvm.make_tma_descriptor(global_mem, smem_layout)
 )""""";
 
     RunMLIRGenerationTest(kSourceCode);
