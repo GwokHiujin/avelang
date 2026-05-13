@@ -345,5 +345,7 @@ class NvidiaDriver(GPUDriver):
 
         major, minor = torch.cuda.get_device_capability()
         arch = f"sm_{major}{minor}"
+        if major == 9 and minor == 0:
+            arch = "sm_90a"
 
         return GPUTarget("nvptx64-nvidia-cuda", arch)
