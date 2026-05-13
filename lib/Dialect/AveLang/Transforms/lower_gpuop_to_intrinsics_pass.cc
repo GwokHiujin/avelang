@@ -511,6 +511,26 @@ class NVVMTMADescriptorLowering
         return mlir::success();
     }
 };
+
+class NVVMTMAFenceLowering : public mlir::OpRewritePattern<NVVMTMAFenceOp> {
+  public:
+    using mlir::OpRewritePattern<NVVMTMAFenceOp>::OpRewritePattern;
+
+    mlir::LogicalResult
+    matchAndRewrite(NVVMTMAFenceOp op,
+                    mlir::PatternRewriter &rewriter) const override {
+        auto descType =
+            mlir::dyn_cast<mlir::nvgpu::TensorMapDescriptorType>(
+                op.getDesc().getType());
+        if (!descType) {
+            return mlir::failure();
+        }
+
+        mlir::nvgpu::TmaFenceOp::create(rewriter, op.getLoc(), op.getDesc());
+        rewriter.eraseOp(op);
+        return mlir::success();
+    }
+};
 class AMDGPUMfmaLowering : public mlir::OpRewritePattern<AMDGPUMfmaOp> {
   public:
     using mlir::OpRewritePattern<AMDGPUMfmaOp>::OpRewritePattern;
@@ -644,7 +664,8 @@ class LowerAveLangGPUToIntrinsicsPass
         mlir::RewritePatternSet patterns(&getContext());
         patterns
             .add<NVVMMmaLowering, NVVMLdMatrixLowering, NVVMStMatrixLowering,
-                 NVVMTMADescriptorLowering, AMDGPUMfmaLowering,
+                 NVVMTMADescriptorLowering, NVVMTMAFenceLowering,
+                 AMDGPUMfmaLowering,
                  AMDGPURawBufferLoadLowering, AMDGPURawBufferStoreLowering>(
                 &getContext());
 
