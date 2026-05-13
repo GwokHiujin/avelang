@@ -143,10 +143,9 @@ class GpuOutliningPass
                             return addrSpaceAttr.getValue() ==
                                    mlir::gpu::AddressSpace::Workgroup;
                         }
-                        if (auto integerSpace =
-                                mlir::dyn_cast<mlir::IntegerAttr>(
-                                    addressSpace)) {
-                            return integerSpace.getInt() == 3;
+                        if (auto intSpace =
+                                mlir::dyn_cast<mlir::IntegerAttr>(addressSpace)) {
+                            return intSpace.getInt() == 3;
                         }
                     }
                     return false;

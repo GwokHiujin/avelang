@@ -1311,6 +1311,19 @@ def alloc_shared_aligned_test(output: S.Tensor((1,), S.i32)):
     pm.addPass(cf::createLowerAveLangToMemRefPass());
     ASSERT_TRUE(mlir::succeeded(pm.run(mlir))) << "Pass pipeline failed";
 
+    auto isLoweredWorkgroupMemorySpace = [](mlir::Attribute memorySpace) {
+        if (auto addrSpace =
+                mlir::dyn_cast_or_null<mlir::gpu::AddressSpaceAttr>(
+                    memorySpace)) {
+            return addrSpace.getValue() == mlir::gpu::AddressSpace::Workgroup;
+        }
+        if (auto intSpace =
+                mlir::dyn_cast_or_null<mlir::IntegerAttr>(memorySpace)) {
+            return intSpace.getInt() == 3;
+        }
+        return false;
+    };
+
     bool foundLoweredAlignedAlloca = false;
     mlir->walk([&](mlir::memref::AllocaOp op) {
         auto memrefType = op.getType();
@@ -1319,14 +1332,7 @@ def alloc_shared_aligned_test(output: S.Tensor((1,), S.i32)):
             shape.size() != 1 || shape[0] != 32) {
             return;
         }
-        auto memorySpace = memrefType.getMemorySpace();
-        auto addrSpace =
-            mlir::dyn_cast_or_null<mlir::gpu::AddressSpaceAttr>(memorySpace);
-        auto integerSpace =
-            mlir::dyn_cast_or_null<mlir::IntegerAttr>(memorySpace);
-        if ((!addrSpace ||
-             addrSpace.getValue() != mlir::gpu::AddressSpace::Workgroup) &&
-            (!integerSpace || integerSpace.getInt() != 3)) {
+        if (!isLoweredWorkgroupMemorySpace(memrefType.getMemorySpace())) {
             return;
         }
 
@@ -1449,6 +1455,24 @@ def tma_fence_test(global_mem: S.Tensor((16, 16), S.f32)):
 )""""";
 
     RunMLIRGenerationTest(kSourceCode);
+}
+
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMTmaLoad) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def tma_load_test(global_mem: S.Tensor((16, 16), S.f32)):
+    smem = S.make_shared((16, 16), S.f32)
+    smem_layout = S.make_layout((16, 16), (16, 1))
+    desc = S.nvvm.make_tma_descriptor(global_mem, smem_layout)
+    S.nvvm.tma_load(smem, desc, (0, 0), smem, mbar_id=0, predicate=1)
+)""""";
+
+    RunMLIRGenerationErrorTest(kSourceCode,
+                               "tma_load barrier operand must be of type "
+                               "mbarrier_group_t");
 }
 
 TEST_F(MLIRGeneratorTest, GenerateMLIRAMDGPUMFMASync) {
