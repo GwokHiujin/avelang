@@ -23,6 +23,11 @@ from .core import (
     f64,
     # Other types
     constexpr,
+    WgmmaSwizzleKind,
+    WGMMA_SWIZZLE_NONE,
+    WGMMA_SWIZZLE_32B,
+    WGMMA_SWIZZLE_64B,
+    WGMMA_SWIZZLE_128B,
     dynamic,
     Tensor,
     Pointer,
@@ -66,6 +71,11 @@ __all__ = [
     "f64",
     # Other types
     "constexpr",
+    "WgmmaSwizzleKind",
+    "WGMMA_SWIZZLE_NONE",
+    "WGMMA_SWIZZLE_32B",
+    "WGMMA_SWIZZLE_64B",
+    "WGMMA_SWIZZLE_128B",
     "dynamic",
     "Tensor",
     "Pointer",
