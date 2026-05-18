@@ -60,9 +60,10 @@ mlir::Attribute normalizeBuiltinMemorySpace(mlir::MLIRContext *context,
             return mlir::IntegerAttr::get(
                 mlir::IntegerType::get(context, 64), 1);
         case mlir::gpu::AddressSpace::Workgroup:
-            // NVVM memref conversion requires numeric CUDA address spaces.
-            return mlir::IntegerAttr::get(
-                mlir::IntegerType::get(context, 64), 3);
+            // Keep workgroup memory space in integer form to satisfy NVVM
+            // memref-to-LLVM conversions and avoid mixed-address-space views.
+            return mlir::IntegerAttr::get(mlir::IntegerType::get(context, 64),
+                                          3);
         }
     }
     return memorySpace;
@@ -1162,7 +1163,8 @@ mlir::LogicalResult AveLangMemRefAllocaLoweringPattern::matchAndRewrite(
 
     mlir::IntegerAttr alignmentAttr = op.getAlignmentAttr();
     if (!alignmentAttr) {
-        if (auto alignment = getPreferredAlignment(resultType.getElementType())) {
+        if (auto alignment =
+                getPreferredAlignment(resultType.getElementType())) {
             alignmentAttr = rewriter.getI64IntegerAttr(*alignment);
         }
     }
