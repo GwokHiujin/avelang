@@ -1,5 +1,8 @@
 # Build outputs
 .*
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
 build/
 dist/
 *.egg-info/
@@ -23,4 +26,3 @@ __pycache__/
 
 # Editor and local-tool state
 .cache/
-
