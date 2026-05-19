@@ -16,6 +16,7 @@ $SUDO apt-get install -y --no-install-recommends \
   g++ \
   gcc \
   git \
+  lld \
   ninja-build \
   python3-dev \
   python3-pip \

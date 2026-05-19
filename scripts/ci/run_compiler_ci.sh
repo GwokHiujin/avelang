@@ -3,7 +3,7 @@ set -euo pipefail
 
 backend="${1:?usage: run_compiler_ci.sh <cuda|rocm>}"
 
-LLVM_INSTALL_PREFIX="${LLVM_INSTALL_PREFIX:-/opt/llvm-ci}"
+LLVM_INSTALL_PREFIX="${LLVM_INSTALL_PREFIX:-/usr/local}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 case "$backend" in

@@ -26,10 +26,10 @@ jobs:
     env:
       LLVM_REPOSITORY: https://github.com/llvm/llvm-project.git
       LLVM_REF: release/22.x
-      LLVM_INSTALL_PREFIX: /opt/llvm-ci
+      LLVM_TARGETS_TO_BUILD: NVPTX;X86;BPF
+      LLVM_INSTALL_PREFIX: /usr/local
       LLVM_SOURCE_DIR: /tmp/llvm-project-release-22.x
-      LLVM_BUILD_DIR: /tmp/llvm-build-release-22.x
-      LLVM_CACHE_KEY: llvm-release-22.x
+      LLVM_BUILD_DIR: /tmp/llvm-project-release-22.x/build
 
     steps:
       - name: Check out repository
@@ -37,12 +37,6 @@ jobs:
 
       - name: Install common build dependencies
         run: bash scripts/ci/install_common_deps.sh
-
-      - name: Cache LLVM install
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.LLVM_INSTALL_PREFIX }}
-          key: llvm-${{ runner.os }}-${{ runner.arch }}-cuda-${{ env.LLVM_CACHE_KEY }}-${{ hashFiles('scripts/ci/build_llvm.sh') }}
 
       - name: Build LLVM, MLIR, and Clang
         run: bash scripts/ci/build_llvm.sh
@@ -60,10 +54,12 @@ jobs:
     env:
       LLVM_REPOSITORY: https://github.com/ROCm/llvm-project.git
       LLVM_REF: rocm-7.2.2
-      LLVM_INSTALL_PREFIX: /opt/llvm-ci
+      LLVM_TARGETS_TO_BUILD: AMDGPU;X86;BPF
+      LLVM_INSTALL_PREFIX: /usr/local
       LLVM_SOURCE_DIR: /tmp/llvm-project-rocm-7.2.2
-      LLVM_BUILD_DIR: /tmp/llvm-build-rocm-7.2.2
-      LLVM_CACHE_KEY: llvm-rocm-7.2.2
+      LLVM_BUILD_DIR: /tmp/llvm-project-rocm-7.2.2/build
+      LLVM_C_COMPILER: /opt/rocm/llvm/bin/clang
+      LLVM_CXX_COMPILER: /opt/rocm/llvm/bin/clang++
       ROCM_PATH: /opt/rocm
 
     steps:
@@ -72,12 +68,6 @@ jobs:
 
       - name: Install common build dependencies
         run: bash scripts/ci/install_common_deps.sh
-
-      - name: Cache LLVM install
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.LLVM_INSTALL_PREFIX }}
-          key: llvm-${{ runner.os }}-${{ runner.arch }}-rocm-${{ env.LLVM_CACHE_KEY }}-${{ hashFiles('scripts/ci/build_llvm.sh') }}
 
       - name: Build LLVM, MLIR, and Clang
         run: bash scripts/ci/build_llvm.sh
