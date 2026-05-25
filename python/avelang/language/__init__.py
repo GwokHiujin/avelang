@@ -4,6 +4,7 @@ ave-lang: JIT compiler for GPU kernels.
 A Python framework for writing high-performance GPU kernels with JIT compilation.
 """
 
+from . import nvvm
 from .core import (
     # Signed integer types
     i8,
@@ -49,7 +50,6 @@ from .core import (
     log2,
     erf,
     sqrt,
-    nvvm,
 )
 
 __all__ = [
