@@ -53,7 +53,6 @@ from .core import (
     log2,
     erf,
     sqrt,
-    nvvm,
 )
 
 __all__ = [
