@@ -102,4 +102,5 @@ __all__ = [
     "log2",
     "erf",
     "sqrt",
+    "nvvm",
 ]
