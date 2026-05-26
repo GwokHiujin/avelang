@@ -1229,25 +1229,47 @@ mlir::Value ExprGenerator::CastTensorVector(mlir::Value value,
         return indices;
     };
 
+    auto shapeCastCompatibleVector =
+        [&](mlir::Value source, mlir::VectorType source_vector,
+            mlir::VectorType target_vector) -> mlir::Value {
+        if (auto shape_cast =
+                source.getDefiningOp<mlir::vector::ShapeCastOp>()) {
+            auto shape_cast_source = shape_cast.getSource();
+            auto shape_cast_source_vector =
+                mlir::dyn_cast<mlir::VectorType>(shape_cast_source.getType());
+            if (shape_cast_source_vector &&
+                shape_cast_source_vector == target_vector) {
+                return shape_cast_source;
+            }
+        }
+        if (!source_vector.hasStaticShape() ||
+            !target_vector.hasStaticShape() ||
+            source_vector.getElementType() != target_vector.getElementType() ||
+            source_vector.getNumElements() != target_vector.getNumElements()) {
+            return mlir::Value();
+        }
+        auto cast = mlir::vector::ShapeCastOp::create(builder, mlir_loc,
+                                                      target_vector, source);
+        SetTypeInfo(cast.getResult(), GetTypeInfo(source));
+        return cast.getResult();
+    };
+
     if (auto target_vector = mlir::dyn_cast<mlir::VectorType>(target_type)) {
+        if (auto source_vector =
+                mlir::dyn_cast<mlir::VectorType>(value.getType())) {
+            if (auto cast = shapeCastCompatibleVector(value, source_vector,
+                                                      target_vector)) {
+                return cast;
+            }
+        }
+
         if (auto source_memref_type =
                 mlir::dyn_cast<cf::MemRefType>(value.getType())) {
-            if (source_memref_type.getRank() != target_vector.getRank())
-                return value;
-
-            bool compatible = true;
-            for (int64_t i = 0; i < source_memref_type.getRank(); ++i) {
-                int64_t vec_dim = target_vector.getShape()[i];
-                int64_t mem_dim = source_memref_type.getShape()[i];
-                if (mem_dim != vec_dim &&
-                    mem_dim != mlir::ShapedType::kDynamic) {
-                    compatible = false;
-                    break;
-                }
-            }
-
-            if (compatible && source_memref_type.getElementType() ==
-                                  target_vector.getElementType()) {
+            if (source_memref_type.hasStaticShape() &&
+                source_memref_type.getNumElements() ==
+                    target_vector.getNumElements() &&
+                source_memref_type.getElementType() ==
+                    target_vector.getElementType()) {
                 auto indices = createZeroIndices(source_memref_type.getRank());
                 auto load = cf::AveLangMemRefLoadVecOp::create(
                     builder, mlir_loc, target_vector, value, indices);
@@ -1258,28 +1280,26 @@ mlir::Value ExprGenerator::CastTensorVector(mlir::Value value,
                    mlir::dyn_cast<cf::MemRefType>(target_type)) {
         if (auto source_vector =
                 mlir::dyn_cast<mlir::VectorType>(value.getType())) {
-            if (source_vector.getRank() != target_memref.getRank())
+            if (!source_vector.hasStaticShape() ||
+                !target_memref.hasStaticShape() ||
+                source_vector.getElementType() !=
+                    target_memref.getElementType() ||
+                source_vector.getNumElements() !=
+                    target_memref.getNumElements())
                 return value;
 
-            bool compatible = true;
-            for (int64_t i = 0; i < target_memref.getRank(); ++i) {
-                int64_t vec_dim = source_vector.getShape()[i];
-                int64_t mem_dim = target_memref.getShape()[i];
-                if (mem_dim != vec_dim) {
-                    compatible = false;
-                    break;
-                }
-            }
-
-            if (compatible && source_vector.getElementType() ==
-                                  target_memref.getElementType()) {
-                // Only support static memref conversions for now.
-                if (llvm::any_of(target_memref.getShape(), [](int64_t dim) {
-                        return dim == mlir::ShapedType::kDynamic;
-                    })) {
+            auto target_vector = mlir::VectorType::get(
+                target_memref.getShape(), target_memref.getElementType());
+            if (source_vector != target_vector) {
+                auto cast = shapeCastCompatibleVector(value, source_vector,
+                                                      target_vector);
+                if (!cast) {
                     return value;
                 }
+                value = cast;
+            }
 
+            {
                 auto addressSpaceAttr = mlir::gpu::AddressSpaceAttr::get(
                     builder.getContext(), mlir::gpu::AddressSpace::Private);
                 cf::MemRefType target_memref_type;
@@ -1520,7 +1540,59 @@ mlir::Value ExprGenerator::GenerateJitFunctionCall(
         return mlir::Value();
     }
 
-    return GenerateFuncCall(call, func_op, resolved_args);
+    auto result = GenerateFuncCall(call, func_op, resolved_args);
+    if (!result || !func->GetReturns()) {
+        return result;
+    }
+
+    auto restore_tensor_shape = [&](mlir::Value value,
+                                    ast::Expr *annotation) -> mlir::Value {
+        auto tensor_type =
+            mlir::dyn_cast<cf::MemRefType>(ctx->syms->ResolveType(annotation));
+        auto vector_type = mlir::dyn_cast<mlir::VectorType>(value.getType());
+        if (!tensor_type || !vector_type || !tensor_type.hasStaticShape() ||
+            tensor_type.getRank() <= 1 ||
+            tensor_type.getElementType() != vector_type.getElementType() ||
+            tensor_type.getNumElements() != vector_type.getNumElements()) {
+            return value;
+        }
+
+        auto shaped_type = mlir::VectorType::get(tensor_type.getShape(),
+                                                 tensor_type.getElementType());
+        if (vector_type == shaped_type) {
+            return value;
+        }
+        auto shaped = mlir::vector::ShapeCastOp::create(
+            parent_->GetBuilder(), GetMLIRLocation(call), shaped_type, value);
+        SetTypeInfo(shaped.getResult(), GetTypeInfo(value));
+        return shaped.getResult();
+    };
+
+    auto restore_tuple_shapes = [&](auto *tuple_expr) -> mlir::Value {
+        auto tuple_op = result.getDefiningOp<cf::MakeIntTupleOp>();
+        if (!tuple_op ||
+            tuple_op.getElements().size() != tuple_expr->GetElts().size()) {
+            return result;
+        }
+        llvm::SmallVector<mlir::Value> values;
+        values.append(tuple_op.getElements().begin(),
+                      tuple_op.getElements().end());
+        for (size_t i = 0; i < values.size(); ++i) {
+            values[i] =
+                restore_tensor_shape(values[i], tuple_expr->GetElts()[i]);
+        }
+        return cf::MakeIntTupleOp::create(parent_->GetBuilder(),
+                                          GetMLIRLocation(call), values)
+            .getResult();
+    };
+
+    if (auto *tuple = llvm::dyn_cast<ast::Tuple>(func->GetReturns())) {
+        return restore_tuple_shapes(tuple);
+    }
+    if (auto *list = llvm::dyn_cast<ast::List>(func->GetReturns())) {
+        return restore_tuple_shapes(list);
+    }
+    return restore_tensor_shape(result, func->GetReturns());
 }
 
 mlir::Value ExprGenerator::VisitCall(ast::Call *call) {

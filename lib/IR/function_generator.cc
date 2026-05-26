@@ -242,7 +242,7 @@ void FunctionGenerator::Generate(ast::FunctionDef *func) {
                     << "Tensor return values must have a static shape";
                 return mlir::Type();
             }
-            return mlir::VectorType::get(memref_type.getShape(),
+            return mlir::VectorType::get(memref_type.getNumElements(),
                                          memref_type.getElementType());
         };
 
