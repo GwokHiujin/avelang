@@ -63,7 +63,7 @@ LAUNCHER_PROLOGUE = """
 #include <Python.h>
 #include <stdbool.h>
 #include <cstdint>
-#include <string>
+#include <cstring>
 
 static inline void gpuAssert(CUresult code, const char *file, int line)
 {
@@ -71,8 +71,9 @@ static inline void gpuAssert(CUresult code, const char *file, int line)
    {
       const char* str;
       cuGetErrorString(code, &str);
-      std::string err = "ave-lang Error [CUDA]: ";
-      err += str;
+      char err[1024] = {0,};
+      std::strcat(err, prefix);
+      std::strcat(err, str);
       PyGILState_STATE gil_state;
       gil_state = PyGILState_Ensure();
       PyErr_SetString(PyExc_RuntimeError, err.c_str());
