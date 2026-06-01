@@ -35,6 +35,7 @@ namespace causalflow::avelang::ir {
 class MLIRGeneratorImpl;
 class FunctionGenerator;
 using ArgAddressSpaceMap = std::unordered_map<std::string, mlir::Attribute>;
+using ConstexprValueMap = std::unordered_map<std::string, mlir::Value>;
 
 class ExprGenerator : public ast::ASTVisitor<ExprGenerator, mlir::Value> {
   public:
@@ -54,7 +55,9 @@ class ExprGenerator : public ast::ASTVisitor<ExprGenerator, mlir::Value> {
     mlir::Value VisitImportFrom(ast::ImportFrom *import_from_stmt);
 
     mlir::Value GenerateFuncCall(ast::Call *call, mlir::func::FuncOp func_op,
-                                 llvm::ArrayRef<mlir::Value> resolved_args);
+                                 llvm::ArrayRef<mlir::Value> resolved_args,
+                                 llvm::ArrayRef<size_t> source_arg_indices = {},
+                                 bool use_source_arg_indices = false);
     mlir::Value
     GenerateJitFunctionCall(ast::Call *call, ast::FunctionDef *func,
                             llvm::ArrayRef<mlir::Value> resolved_args);
@@ -80,7 +83,8 @@ class FunctionGenerator : public ast::ASTVisitor<FunctionGenerator> {
     explicit FunctionGenerator(MLIRGeneratorImpl &parent,
                                MLIRGenerator::FunctionType function_type,
                                ArgAddressSpaceMap argument_address_spaces = {},
-                               std::string name_prefix = {});
+                               std::string name_prefix = {},
+                               ConstexprValueMap constexpr_values = {});
 
     MLIRGeneratorImpl &GetParent() { return parent_; }
     GeneratorContext *GetContext() { return ctx_; }
@@ -150,6 +154,7 @@ class FunctionGenerator : public ast::ASTVisitor<FunctionGenerator> {
     std::string qualified_scope_prefix_;
     const ast::FunctionDef *current_func_ = nullptr;
     ArgAddressSpaceMap argument_address_spaces_;
+    ConstexprValueMap constexpr_values_;
     mlir::Block *entry_block_ = nullptr;
 };
 
