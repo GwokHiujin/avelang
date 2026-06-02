@@ -3,14 +3,10 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-if [[ ! -s runner-token ]]; then
-  echo "Write a fresh repository runner registration token to .github/runner/runner-token first." >&2
+if [[ -z "${RUNNER_TOKEN:-}" ]]; then
+  echo "Pass a fresh repository runner registration token in RUNNER_TOKEN." >&2
   exit 1
 fi
-
-chmod 600 runner-token
-export RUNNER_TOKEN
-RUNNER_TOKEN="$(< runner-token)"
 
 docker compose --file compose.yml build runner
 docker compose --file compose.yml up --detach dind
@@ -39,7 +35,6 @@ docker compose --file compose.yml up --detach --force-recreate runner
 for attempt in $(seq 1 60); do
   runner_logs="$(docker compose --file compose.yml logs --no-color runner 2>&1 || true)"
   if [[ "${runner_logs}" == *"Listening for Jobs"* ]]; then
-    unset RUNNER_TOKEN
     echo "GitHub Actions runner is listening for jobs."
     exit 0
   fi

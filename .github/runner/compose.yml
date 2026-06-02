@@ -34,21 +34,12 @@ services:
       RUNNER_URL: ${RUNNER_URL:-https://github.com/causalflow-ai/avelang}
       RUNNER_NAME: ${RUNNER_NAME:-mi300-dind}
       RUNNER_LABELS: mi300,rocm72,dind
+      RUNNER_TOKEN: ${RUNNER_TOKEN:-}
       AVELANG_CI_IMAGE: avelang-ci:rocm7.2.2
-    secrets:
-      - source: runner-token
-        target: runner-token
-        uid: "1001"
-        gid: "1001"
-        mode: 0400
     volumes:
       - runner-work:/home/runner/_work
     networks:
       - runner-net
-
-secrets:
-  runner-token:
-    environment: RUNNER_TOKEN
 
 volumes:
   docker-data:

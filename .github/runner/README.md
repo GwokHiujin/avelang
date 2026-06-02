@@ -35,17 +35,20 @@ nodes are available:
 
 ```bash
 cd .github/runner
-printf '%s' '<fresh repository runner registration token>' > runner-token
+read -rsp 'Runner token: ' RUNNER_TOKEN
+echo
+export RUNNER_TOKEN
 ./setup.sh
-rm runner-token
+unset RUNNER_TOKEN
 ```
 
 Generate the short-lived token from the upstream repository's
 `Settings > Actions > Runners > New self-hosted runner` page immediately before
-bootstrap. Never commit it. The runner image uses GitHub Actions runner 2.334.0.
+bootstrap. Pass it through the environment as shown above. The runner image uses
+GitHub Actions runner 2.334.0.
 
 The first setup builds `avelang-ci:rocm7.2.2`. This is intentionally expensive:
-it compiles the pinned ROCm LLVM commit used by the current machine environment.
+it compiles the pinned ROCm LLVM tag used by the current machine environment.
 Subsequent runs reuse that local DinD image.
 
 ## Operations
