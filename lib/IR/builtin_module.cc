@@ -1449,7 +1449,7 @@ CreateMakeTensorWithMemorySpace(ast::Call *call_expr, GeneratorContext *ctx,
         auto allocaOp = cf::AveLangMemRefAllocaOp::create(
             builder, location, baseType, mlir::ValueRange{});
         if (alignmentAttr) {
-            allocaOp->setAttr("alignment", alignmentAttr);
+            allocaOp.setAlignmentAttr(alignmentAttr);
         }
         alloca = allocaOp.getResult();
     }
