@@ -1,0 +1,6 @@
+Time (%),Total Time (ns),Instances,Avg (ns),Med (ns),Min (ns),Max (ns),StdDev (ns),Name
+69.9,125434727,8,15679340.9,14676123.5,14288071,17956490,1728098.9,nvjet_tst_192x192_64x3_2x1_v_bz_coopB_NNN
+20.0,35951190,23,1563095.2,1541487.0,1531310,1770929,67135.1,nvjet_tst_256x128_64x4_1x2_h_bz_coopA_NNT
+8.6,15489239,156,99290.0,31520.0,31360,242915,94695.7,nvjet_tst_320x128_64x3_1x2_h_bz_coopB_NNT
+0.7,1328687,203,6545.3,6528.0,6432,7104,81.4,nvjet_tst_128x80_64x8_4x1_v_bz_NNT
+0.7,1285165,15,85677.7,43904.0,3712,316131,113847.5,"<unnamed>::fill_bf16_kernel(__nv_bfloat16 *, unsigned long, float)"

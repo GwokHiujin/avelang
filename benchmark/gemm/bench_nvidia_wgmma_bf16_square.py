@@ -109,7 +109,7 @@ def run_square_benchmark(size, warmup, repeat, iters, validate):
     )
 
     if validate:
-        expected = torch.full_like(c, float(size * (warmup + repeat * iters)))
+        expected = torch.full_like(c, float(size))
         actual = c
         max_abs = torch.max(torch.abs(actual.float() - expected.float())).item()
         if not torch.equal(actual, expected):

@@ -12,6 +12,7 @@ WGMMA_SWIZZLE_128B = S.WGMMA_SWIZZLE_128B
 TILE_M = 64
 TILE_N = 64
 TILE_K = 64
+K_UNROLL = 8
 THREADS_PER_CTA = 128
 BF16_BYTES = 2
 CP_ASYNC_BYTES = 16
@@ -58,15 +59,27 @@ def gemm_wgmma_bf16_square_kernel(
     a_shared = S.make_shared((TILE_M, TILE_K), S.bf16)
     b_shared = S.make_shared((TILE_K, TILE_N), S.bf16)
     c_shared = S.make_shared((TILE_M, TILE_N), S.f32)
+    c_accum_shared = S.make_shared((TILE_M, TILE_N), S.f32)
 
-    k_tiles = size // TILE_K
+    k_groups = size // (TILE_K * K_UNROLL)
 
-    for k_tile in S.range(k_tiles):
-        k_base = k_tile * TILE_K
+    for i in S.range(STORE_ITERS):
+        idx = tid + i * THREADS_PER_CTA
+        row = idx // TILE_N
+        col = idx % TILE_N
+        c_accum_shared[row, col] = S.convert(0.0, S.f32)
+
+    S.syncthreads()
+
+    for k_group in S.range(k_groups):
+        # Keep the WGMMA accumulator in registers across 8 64-wide K stages 
+        k_base = k_group * TILE_K * K_UNROLL
 
         # Each CTA stages a 64x64 BF16 A tile and a 64x64 BF16 B tile.
         # The destination offsets write directly into the WGMMA 128B swizzled
         # shared-memory layout expected by make_wgmma_descriptor.
+        acc = S.nvvm.wgmma_init_accumulator(TILE_M, TILE_N)
+
         for i in S.range(CP_ASYNC_CHUNKS // THREADS_PER_CTA):
             chunk = tid + i * THREADS_PER_CTA
             row = chunk // CP_ASYNC_CHUNKS_PER_ROW
@@ -94,7 +107,230 @@ def gemm_wgmma_bf16_square_kernel(
         desc_b = S.nvvm.make_wgmma_descriptor(
             b_shared, WGMMA_SWIZZLE_128B, 0, 0, 0
         )
-        acc = S.nvvm.wgmma_init_accumulator(TILE_M, TILE_N)
+        acc = S.nvvm.wgmma_async(desc_a, desc_b, acc)
+        S.syncthreads()
+
+        k_base = k_base + TILE_K
+
+        for i in S.range(CP_ASYNC_CHUNKS // THREADS_PER_CTA):
+            chunk = tid + i * THREADS_PER_CTA
+            row = chunk // CP_ASYNC_CHUNKS_PER_ROW
+            col = (chunk % CP_ASYNC_CHUNKS_PER_ROW) * BF16_PER_CP_ASYNC
+            swizzled_col = col ^ ((row % 8) * 8)
+            dst_offset = (row * TILE_K + swizzled_col) * BF16_BYTES
+
+            a_src_offset = ((block_m + row) * size + k_base + col) * BF16_BYTES
+            b_src_offset = ((k_base + row) * size + block_n + col) * BF16_BYTES
+
+            S.nvvm.cp_async_ca_shared_global(
+                a_shared, a, dst_offset, a_src_offset, CP_ASYNC_BYTES
+            )
+            S.nvvm.cp_async_ca_shared_global(
+                b_shared, b, dst_offset, b_src_offset, CP_ASYNC_BYTES
+            )
+
+        S.nvvm.cp_async_commit_group()
+        S.nvvm.cp_async_wait_group(0)
+        S.syncthreads()
+
+        desc_a = S.nvvm.make_wgmma_descriptor(
+            a_shared, WGMMA_SWIZZLE_128B, 0, 0, 0
+        )
+        desc_b = S.nvvm.make_wgmma_descriptor(
+            b_shared, WGMMA_SWIZZLE_128B, 0, 0, 0
+        )
+        acc = S.nvvm.wgmma_async(desc_a, desc_b, acc)
+        S.syncthreads()
+
+        k_base = k_base + TILE_K
+
+        for i in S.range(CP_ASYNC_CHUNKS // THREADS_PER_CTA):
+            chunk = tid + i * THREADS_PER_CTA
+            row = chunk // CP_ASYNC_CHUNKS_PER_ROW
+            col = (chunk % CP_ASYNC_CHUNKS_PER_ROW) * BF16_PER_CP_ASYNC
+            swizzled_col = col ^ ((row % 8) * 8)
+            dst_offset = (row * TILE_K + swizzled_col) * BF16_BYTES
+
+            a_src_offset = ((block_m + row) * size + k_base + col) * BF16_BYTES
+            b_src_offset = ((k_base + row) * size + block_n + col) * BF16_BYTES
+
+            S.nvvm.cp_async_ca_shared_global(
+                a_shared, a, dst_offset, a_src_offset, CP_ASYNC_BYTES
+            )
+            S.nvvm.cp_async_ca_shared_global(
+                b_shared, b, dst_offset, b_src_offset, CP_ASYNC_BYTES
+            )
+
+        S.nvvm.cp_async_commit_group()
+        S.nvvm.cp_async_wait_group(0)
+        S.syncthreads()
+
+        desc_a = S.nvvm.make_wgmma_descriptor(
+            a_shared, WGMMA_SWIZZLE_128B, 0, 0, 0
+        )
+        desc_b = S.nvvm.make_wgmma_descriptor(
+            b_shared, WGMMA_SWIZZLE_128B, 0, 0, 0
+        )
+        acc = S.nvvm.wgmma_async(desc_a, desc_b, acc)
+        S.syncthreads()
+
+        k_base = k_base + TILE_K
+
+        for i in S.range(CP_ASYNC_CHUNKS // THREADS_PER_CTA):
+            chunk = tid + i * THREADS_PER_CTA
+            row = chunk // CP_ASYNC_CHUNKS_PER_ROW
+            col = (chunk % CP_ASYNC_CHUNKS_PER_ROW) * BF16_PER_CP_ASYNC
+            swizzled_col = col ^ ((row % 8) * 8)
+            dst_offset = (row * TILE_K + swizzled_col) * BF16_BYTES
+
+            a_src_offset = ((block_m + row) * size + k_base + col) * BF16_BYTES
+            b_src_offset = ((k_base + row) * size + block_n + col) * BF16_BYTES
+
+            S.nvvm.cp_async_ca_shared_global(
+                a_shared, a, dst_offset, a_src_offset, CP_ASYNC_BYTES
+            )
+            S.nvvm.cp_async_ca_shared_global(
+                b_shared, b, dst_offset, b_src_offset, CP_ASYNC_BYTES
+            )
+
+        S.nvvm.cp_async_commit_group()
+        S.nvvm.cp_async_wait_group(0)
+        S.syncthreads()
+
+        desc_a = S.nvvm.make_wgmma_descriptor(
+            a_shared, WGMMA_SWIZZLE_128B, 0, 0, 0
+        )
+        desc_b = S.nvvm.make_wgmma_descriptor(
+            b_shared, WGMMA_SWIZZLE_128B, 0, 0, 0
+        )
+        acc = S.nvvm.wgmma_async(desc_a, desc_b, acc)
+        S.syncthreads()
+
+        k_base = k_base + TILE_K
+
+        for i in S.range(CP_ASYNC_CHUNKS // THREADS_PER_CTA):
+            chunk = tid + i * THREADS_PER_CTA
+            row = chunk // CP_ASYNC_CHUNKS_PER_ROW
+            col = (chunk % CP_ASYNC_CHUNKS_PER_ROW) * BF16_PER_CP_ASYNC
+            swizzled_col = col ^ ((row % 8) * 8)
+            dst_offset = (row * TILE_K + swizzled_col) * BF16_BYTES
+
+            a_src_offset = ((block_m + row) * size + k_base + col) * BF16_BYTES
+            b_src_offset = ((k_base + row) * size + block_n + col) * BF16_BYTES
+
+            S.nvvm.cp_async_ca_shared_global(
+                a_shared, a, dst_offset, a_src_offset, CP_ASYNC_BYTES
+            )
+            S.nvvm.cp_async_ca_shared_global(
+                b_shared, b, dst_offset, b_src_offset, CP_ASYNC_BYTES
+            )
+
+        S.nvvm.cp_async_commit_group()
+        S.nvvm.cp_async_wait_group(0)
+        S.syncthreads()
+
+        desc_a = S.nvvm.make_wgmma_descriptor(
+            a_shared, WGMMA_SWIZZLE_128B, 0, 0, 0
+        )
+        desc_b = S.nvvm.make_wgmma_descriptor(
+            b_shared, WGMMA_SWIZZLE_128B, 0, 0, 0
+        )
+        acc = S.nvvm.wgmma_async(desc_a, desc_b, acc)
+        S.syncthreads()
+
+        k_base = k_base + TILE_K
+
+        for i in S.range(CP_ASYNC_CHUNKS // THREADS_PER_CTA):
+            chunk = tid + i * THREADS_PER_CTA
+            row = chunk // CP_ASYNC_CHUNKS_PER_ROW
+            col = (chunk % CP_ASYNC_CHUNKS_PER_ROW) * BF16_PER_CP_ASYNC
+            swizzled_col = col ^ ((row % 8) * 8)
+            dst_offset = (row * TILE_K + swizzled_col) * BF16_BYTES
+
+            a_src_offset = ((block_m + row) * size + k_base + col) * BF16_BYTES
+            b_src_offset = ((k_base + row) * size + block_n + col) * BF16_BYTES
+
+            S.nvvm.cp_async_ca_shared_global(
+                a_shared, a, dst_offset, a_src_offset, CP_ASYNC_BYTES
+            )
+            S.nvvm.cp_async_ca_shared_global(
+                b_shared, b, dst_offset, b_src_offset, CP_ASYNC_BYTES
+            )
+
+        S.nvvm.cp_async_commit_group()
+        S.nvvm.cp_async_wait_group(0)
+        S.syncthreads()
+
+        desc_a = S.nvvm.make_wgmma_descriptor(
+            a_shared, WGMMA_SWIZZLE_128B, 0, 0, 0
+        )
+        desc_b = S.nvvm.make_wgmma_descriptor(
+            b_shared, WGMMA_SWIZZLE_128B, 0, 0, 0
+        )
+        acc = S.nvvm.wgmma_async(desc_a, desc_b, acc)
+        S.syncthreads()
+
+        k_base = k_base + TILE_K
+
+        for i in S.range(CP_ASYNC_CHUNKS // THREADS_PER_CTA):
+            chunk = tid + i * THREADS_PER_CTA
+            row = chunk // CP_ASYNC_CHUNKS_PER_ROW
+            col = (chunk % CP_ASYNC_CHUNKS_PER_ROW) * BF16_PER_CP_ASYNC
+            swizzled_col = col ^ ((row % 8) * 8)
+            dst_offset = (row * TILE_K + swizzled_col) * BF16_BYTES
+
+            a_src_offset = ((block_m + row) * size + k_base + col) * BF16_BYTES
+            b_src_offset = ((k_base + row) * size + block_n + col) * BF16_BYTES
+
+            S.nvvm.cp_async_ca_shared_global(
+                a_shared, a, dst_offset, a_src_offset, CP_ASYNC_BYTES
+            )
+            S.nvvm.cp_async_ca_shared_global(
+                b_shared, b, dst_offset, b_src_offset, CP_ASYNC_BYTES
+            )
+
+        S.nvvm.cp_async_commit_group()
+        S.nvvm.cp_async_wait_group(0)
+        S.syncthreads()
+
+        desc_a = S.nvvm.make_wgmma_descriptor(
+            a_shared, WGMMA_SWIZZLE_128B, 0, 0, 0
+        )
+        desc_b = S.nvvm.make_wgmma_descriptor(
+            b_shared, WGMMA_SWIZZLE_128B, 0, 0, 0
+        )
+        acc = S.nvvm.wgmma_async(desc_a, desc_b, acc)
+        S.syncthreads()
+
+        k_base = k_base + TILE_K
+
+        for i in S.range(CP_ASYNC_CHUNKS // THREADS_PER_CTA):
+            chunk = tid + i * THREADS_PER_CTA
+            row = chunk // CP_ASYNC_CHUNKS_PER_ROW
+            col = (chunk % CP_ASYNC_CHUNKS_PER_ROW) * BF16_PER_CP_ASYNC
+            swizzled_col = col ^ ((row % 8) * 8)
+            dst_offset = (row * TILE_K + swizzled_col) * BF16_BYTES
+
+            a_src_offset = ((block_m + row) * size + k_base + col) * BF16_BYTES
+            b_src_offset = ((k_base + row) * size + block_n + col) * BF16_BYTES
+
+            S.nvvm.cp_async_ca_shared_global(
+                a_shared, a, dst_offset, a_src_offset, CP_ASYNC_BYTES
+            )
+            S.nvvm.cp_async_ca_shared_global(
+                b_shared, b, dst_offset, b_src_offset, CP_ASYNC_BYTES
+            )
+
+        S.nvvm.cp_async_commit_group()
+        S.nvvm.cp_async_wait_group(0)
+        S.syncthreads()
+
+        desc_a = S.nvvm.make_wgmma_descriptor(
+            a_shared, WGMMA_SWIZZLE_128B, 0, 0, 0
+        )
+        desc_b = S.nvvm.make_wgmma_descriptor(
+            b_shared, WGMMA_SWIZZLE_128B, 0, 0, 0
+        )
         acc = S.nvvm.wgmma_async(desc_a, desc_b, acc)
         S.nvvm.wgmma_store(acc, c_shared)
         S.syncthreads()
@@ -103,13 +339,15 @@ def gemm_wgmma_bf16_square_kernel(
             idx = tid + i * THREADS_PER_CTA
             row = idx // TILE_N
             col = idx % TILE_N
-            partial = c_shared[row, col]
-            current = S.convert(c[block_m + row, block_n + col], S.f32)
-            c[block_m + row, block_n + col] = S.convert(
-                current + partial, S.bf16
-            )
+            c_accum_shared[row, col] = c_accum_shared[row, col] + c_shared[row, col]
 
         S.syncthreads()
+
+    for i in S.range(STORE_ITERS):
+        idx = tid + i * THREADS_PER_CTA
+        row = idx // TILE_N
+        col = idx % TILE_N
+        c[block_m + row, block_n + col] = S.convert(c_accum_shared[row, col], S.bf16)
 
 
 @unittest.skipUnless(
@@ -140,6 +378,29 @@ class TestWgmmaBf16SquareGemm(unittest.TestCase):
             torch.equal(c, expected),
             msg=(
                 f"WGMMA BF16 square GEMM mismatch for size {size}. "
+                f"Max absolute difference: {max_diff}"
+            ),
+        )
+
+    def test_wgmma_bf16_square_gemm_1024_random_reference(self):
+        size = 1024
+        torch.manual_seed(0)
+        a = torch.randn((size, size), dtype=torch.bfloat16, device=self.device)
+        b = torch.randn((size, size), dtype=torch.bfloat16, device=self.device)
+        c = torch.zeros((size, size), dtype=torch.bfloat16, device=self.device)
+
+        grid = (size // TILE_N, size // TILE_M, 1)
+        block = (THREADS_PER_CTA, 1, 1)
+        gemm_wgmma_bf16_square_kernel[lambda: (grid, block)](a, b, c, size)
+        torch.cuda.synchronize(self.device)
+
+        expected = (a.float() @ b.float()).to(dtype=torch.bfloat16)
+        actual = c
+        max_diff = torch.max(torch.abs(actual.float() - expected.float()))
+        self.assertTrue(
+            torch.allclose(actual, expected, rtol=1e-1, atol=1e-1),
+            msg=(
+                "WGMMA BF16 random GEMM mismatch for size 1024. "
                 f"Max absolute difference: {max_diff}"
             ),
         )

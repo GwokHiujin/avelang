@@ -98,18 +98,56 @@ The benchmark uses the same CUDA event and CUDAGraph replay timing pattern as
 
 | M | N | K | Repeats | Avg time (ms) | Effective TFLOPS | Estimated bandwidth (GB/s) |
 |---:|---:|---:|---:|---:|---:|---:|
-| 1024 | 1024 | 1024 | 200 | 0.1409 | 15.239 | 44.646 |
-| 2048 | 2048 | 2048 | 100 | 0.5943 | 28.909 | 42.347 |
-| 4096 | 4096 | 4096 | 50 | 3.8410 | 35.782 | 26.208 |
-| 8192 | 8192 | 8192 | 20 | 31.6962 | 34.689 | 12.704 |
-| 16384 | 16384 | 16384 | 5 | 253.6487 | 34.678 | 6.350 |
+| 1024 | 1024 | 1024 | 200 | 0.0201 | 106.866 | 313.085 |
+| 2048 | 2048 | 2048 | 100 | 0.1337 | 128.455 | 188.166 |
+| 4096 | 4096 | 4096 | 50 | 0.7805 | 176.087 | 128.970 |
+| 8192 | 8192 | 8192 | 20 | 6.1059 | 180.072 | 65.944 |
+| 16384 | 16384 | 16384 | 5 | 68.7572 | 127.930 | 23.425 |
 
 Captured output:
 
 ```text
-M=1024 N=1024 K=1024 time_ms=0.1409 tflops=15.239 bandwidth_gbs=44.646 device=2
-M=2048 N=2048 K=2048 time_ms=0.5943 tflops=28.909 bandwidth_gbs=42.347 device=2
-M=4096 N=4096 K=4096 time_ms=3.8410 tflops=35.782 bandwidth_gbs=26.208 device=2
-M=8192 N=8192 K=8192 time_ms=31.6962 tflops=34.689 bandwidth_gbs=12.704 device=2
-M=16384 N=16384 K=16384 time_ms=253.6487 tflops=34.678 bandwidth_gbs=6.350 device=2
+M=1024 N=1024 K=1024 time_ms=0.0201 tflops=106.866 bandwidth_gbs=313.085 device=2
+M=2048 N=2048 K=2048 time_ms=0.1337 tflops=128.455 bandwidth_gbs=188.166 device=2
+M=4096 N=4096 K=4096 time_ms=0.7805 tflops=176.087 bandwidth_gbs=128.970 device=2
+M=8192 N=8192 K=8192 time_ms=6.1059 tflops=180.072 bandwidth_gbs=65.944 device=2
+M=16384 N=16384 K=16384 time_ms=68.7572 tflops=127.930 bandwidth_gbs=23.425 device=2
 ```
+
+### Avelang PTX Assembly
+
+PTX dumps generated with:
+
+```bash
+cd /workspace/avelang
+PYTHONPATH=python python tools/dump_assembly.py \
+  --target-triple nvptx64-nvidia-cuda \
+  --target-chipset sm_90a \
+  --constexprs-json '<size-specialized constexprs>' \
+  test/examples/gemm/nvidia/test_gemm_wgmma_bf16_square.py:gemm_wgmma_bf16_square_kernel \
+  -o cublaslt/artifacts/avelang_wgmma_bf16_square.size<SIZE>.sm_90a.ptx
+```
+
+Generated PTX:
+
+- `artifacts/avelang_wgmma_bf16_square.size1024.sm_90a.ptx`
+- `artifacts/avelang_wgmma_bf16_square.size2048.sm_90a.ptx`
+- `artifacts/avelang_wgmma_bf16_square.size4096.sm_90a.ptx`
+- `artifacts/avelang_wgmma_bf16_square.size8192.sm_90a.ptx`
+- `artifacts/avelang_wgmma_bf16_square.size16384.sm_90a.ptx`
+
+The 1024 specialization contains:
+
+```text
+32 wgmma.mma_async.sync.aligned.m64n64k16.f32.bf16.bf16
+80 cp.async
+18 bar.sync
+2 cvt.rn.bf16
+2 st.global
+```
+
+The saved cuBLASLt PTX artifact
+`artifacts/bf16_square_gemm_cublaslt.sm_90a.ptx` contains only the benchmark's
+`fill_bf16_kernel`, not the cuBLASLt library GEMM kernel selected at runtime. It
+therefore contains no `wgmma` or `cp.async` instructions and is not a direct GEMM
+kernel assembly comparison target.
