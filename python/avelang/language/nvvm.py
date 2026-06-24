@@ -189,7 +189,7 @@ def cp_async_bulk_wait_group(group: int, read: bool = False):
     pass
 
 
-def make_tma_descriptor(tensor, smem_layout):
+def make_tma_descriptor(tensor, smem_layout, swizzle_kind: int = 0):
     pass
 
 

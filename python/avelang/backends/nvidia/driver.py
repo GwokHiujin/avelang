@@ -235,6 +235,18 @@ def make_launcher(constants, signature, tma_specs=None) -> str:
         else:
             return FORMAT_MAP[ty_to_cpp(ty)]
 
+    def tma_swizzle_to_cpp(swizzle):
+        swizzle_map = {
+            0: "CU_TENSOR_MAP_SWIZZLE_NONE",
+            1: "CU_TENSOR_MAP_SWIZZLE_32B",
+            2: "CU_TENSOR_MAP_SWIZZLE_64B",
+            3: "CU_TENSOR_MAP_SWIZZLE_128B",
+        }
+        swizzle = int(swizzle)
+        if swizzle not in swizzle_map:
+            raise ValueError(f"Unsupported TMA swizzle kind: {swizzle}")
+        return swizzle_map[swizzle]
+
     args_format = "".join([format_of(ty) for ty in signature.values()])
     format = _BASE_ARGS_FORMAT + args_format
 
@@ -292,6 +304,7 @@ def make_launcher(constants, signature, tma_specs=None) -> str:
         box_dims = ", ".join(str(v) for v in spec["box_dims"])
         element_strides = ", ".join("1" for _ in range(rank))
         strides_arg = f"tma_global_strides{i}" if rank > 1 else "NULL"
+        swizzle = tma_swizzle_to_cpp(spec.get("swizzle_kind", 0))
         tma_decl_list.append(
             f"""
     CUtensorMap tma_desc{i} __attribute__((aligned(128)));
@@ -310,7 +323,7 @@ def make_launcher(constants, signature, tma_specs=None) -> str:
         &tma_desc{i}, {spec["dtype"]}, {rank},
         (void *)arg{spec["arg_index"]}, tma_global_dims{i}, {strides_arg},
         tma_box_dims{i}, tma_element_strides{i},
-        CU_TENSOR_MAP_INTERLEAVE_NONE, CU_TENSOR_MAP_SWIZZLE_NONE,
+        CU_TENSOR_MAP_INTERLEAVE_NONE, {swizzle},
         CU_TENSOR_MAP_L2_PROMOTION_NONE, CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE));
 """
         )

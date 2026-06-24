@@ -293,12 +293,14 @@ def NVVMTMADescriptorOp : AveLang_GPU_Op<"nvvm_tma_descriptor", []> {
 
     let arguments = (ins
         AveLang_MemRef:$memref,
-        AnyType:$layout
+        AnyType:$layout,
+        AnyType:$swizzle
     );
     let results = (outs AnyType:$result);
 
     let assemblyFormat = [{
-        $memref `,` $layout attr-dict `:` type($memref) `,` type($layout)
+        $memref `,` $layout `,` $swizzle attr-dict `:`
+        type($memref) `,` type($layout) `,` type($swizzle)
         `->` type($result)
     }];
 

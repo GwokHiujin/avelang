@@ -94,6 +94,22 @@ static std::optional<int64_t> getConstantIntValue(mlir::Value value) {
     return std::nullopt;
 }
 
+static std::optional<mlir::nvgpu::TensorMapSwizzleKind>
+getTensorMapSwizzleKind(int64_t swizzle) {
+    switch (swizzle) {
+    case 0:
+        return mlir::nvgpu::TensorMapSwizzleKind::SWIZZLE_NONE;
+    case 1:
+        return mlir::nvgpu::TensorMapSwizzleKind::SWIZZLE_32B;
+    case 2:
+        return mlir::nvgpu::TensorMapSwizzleKind::SWIZZLE_64B;
+    case 3:
+        return mlir::nvgpu::TensorMapSwizzleKind::SWIZZLE_128B;
+    default:
+        return std::nullopt;
+    }
+}
+
 static bool extractConstantTupleValues(mlir::Value tupleValue,
                                        llvm::SmallVectorImpl<int64_t> &values) {
     if (auto tupleOp = tupleValue.getDefiningOp<cf::MakeIntTupleOp>()) {
@@ -2865,6 +2881,23 @@ mlir::Value NVVMIntrinsic::CreateMakeTMADescriptorFunction(
         return nullptr;
     }
 
+    const auto &keywords = call_expr->GetKeywords();
+    size_t keywordCount = keywords.size();
+    size_t positionalCount = resolved_args.size() - keywordCount;
+
+    mlir::Value swizzleValue =
+        mlir::arith::ConstantIndexOp::create(builder, location, 0).getResult();
+    if (positionalCount > 2) {
+        swizzleValue = resolved_args[2];
+    }
+    for (size_t i = 0; i < keywordCount; ++i) {
+        if (llvm::StringRef(keywords[i]) == "swizzle_kind") {
+            swizzleValue = resolved_args[positionalCount + i];
+        }
+    }
+    auto swizzleInt = getConstantIntValue(swizzleValue);
+    auto swizzleKind = getTensorMapSwizzleKind(*swizzleInt);
+
     auto tensorType =
         mlir::dyn_cast<cf::MemRefType>(resolved_args[0].getType());
     if (!tensorType) {
@@ -2890,25 +2923,47 @@ mlir::Value NVVMIntrinsic::CreateMakeTMADescriptorFunction(
 
     auto resultType = mlir::nvgpu::TensorMapDescriptorType::get(
         builder.getContext(), descriptorTensorType,
-        mlir::nvgpu::TensorMapSwizzleKind::SWIZZLE_NONE,
+        *swizzleKind,
         mlir::nvgpu::TensorMapL2PromoKind::L2PROMO_NONE,
         mlir::nvgpu::TensorMapOOBKind::OOB_ZERO,
         mlir::nvgpu::TensorMapInterleaveKind::INTERLEAVE_NONE);
 
     auto descriptor = cf::NVVMTMADescriptorOp::create(
-        builder, location, resultType, resolved_args[0], resolved_args[1]);
+        builder, location, resultType, resolved_args[0], resolved_args[1],
+        swizzleValue);
     return descriptor.getResult();
 }
 
 bool NVVMIntrinsic::CheckMakeTMADescriptorFunction(
     ast::Call *call_expr, GeneratorContext *ctx,
     llvm::ArrayRef<mlir::Value> resolved_args) const {
-    if (resolved_args.size() != 2) {
+    const auto &keywords = call_expr->GetKeywords();
+    if (resolved_args.size() < keywords.size()) {
         ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
                                         call_expr->GetSourceRange().getBegin())
-            << "make_tma_descriptor requires exactly 2 arguments: tensor, "
-               "smem_layout";
+            << "make_tma_descriptor internal argument mismatch";
         return false;
+    }
+
+    size_t keywordCount = keywords.size();
+    size_t positionalCount = resolved_args.size() - keywordCount;
+    if (positionalCount < 2 || positionalCount > 3) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "make_tma_descriptor requires tensor, smem_layout and "
+               "optional swizzle_kind";
+        return false;
+    }
+
+    for (auto name : keywords) {
+        if (llvm::StringRef(name) != "swizzle_kind") {
+            ctx->diagnostic_manager->Report(
+                basic::DiagnosticCode::kUnimplemented,
+                call_expr->GetSourceRange().getBegin())
+                << "make_tma_descriptor got unsupported keyword argument '"
+                << name << "'";
+            return false;
+        }
     }
 
     if (!resolved_args[0]) {
@@ -2959,6 +3014,34 @@ bool NVVMIntrinsic::CheckMakeTMADescriptorFunction(
                                         call_expr->GetSourceRange().getBegin())
             << "make_tma_descriptor requires a static smem_layout";
         return false;
+    }
+
+    mlir::Value swizzleValue;
+    if (positionalCount > 2) {
+        swizzleValue = resolved_args[2];
+    }
+    for (size_t i = 0; i < keywordCount; ++i) {
+        if (llvm::StringRef(keywords[i]) == "swizzle_kind") {
+            swizzleValue = resolved_args[positionalCount + i];
+        }
+    }
+    if (swizzleValue) {
+        if (!swizzleValue.getType().isIntOrIndex()) {
+            ctx->diagnostic_manager->Report(
+                basic::DiagnosticCode::kUnimplemented,
+                call_expr->GetSourceRange().getBegin())
+                << "make_tma_descriptor swizzle_kind must be an integer";
+            return false;
+        }
+        auto swizzleInt = getConstantIntValue(swizzleValue);
+        if (!swizzleInt || !getTensorMapSwizzleKind(*swizzleInt)) {
+            ctx->diagnostic_manager->Report(
+                basic::DiagnosticCode::kUnimplemented,
+                call_expr->GetSourceRange().getBegin())
+                << "make_tma_descriptor swizzle_kind must be one of 0, 1, 2, "
+                   "or 3";
+            return false;
+        }
     }
 
     return true;

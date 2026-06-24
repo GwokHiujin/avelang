@@ -512,6 +512,11 @@ py::list AveLangMLIRGenerator::GetTMADescriptorSpecs() {
             return;
         }
 
+        auto swizzleKind = GetConstantIntValue(op.getSwizzle());
+        if (!swizzleKind) {
+            return;
+        }
+
         llvm::SmallVector<int64_t> globalDims;
         for (int64_t dim : llvm::reverse(tensorType.getShape())) {
             globalDims.push_back(dim);
@@ -540,6 +545,7 @@ py::list AveLangMLIRGenerator::GetTMADescriptorSpecs() {
         spec["global_strides"] = ToPythonList(globalStrides);
         spec["box_dims"] = ToPythonList(reversedBoxDims);
         spec["dtype"] = *dtype;
+        spec["swizzle_kind"] = *swizzleKind;
         specs.append(std::move(spec));
     });
 
