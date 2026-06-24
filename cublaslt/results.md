@@ -68,4 +68,48 @@ M,N,K,repeats,avg_ms,tflops,algo_workspace_bytes
 
 ## Avelang Results
 
-// TODO
+Benchmark source: `benchmark/gemm/bench_nvidia_wgmma_bf16_square.py`
+
+Test kernel source:
+`test/examples/gemm/nvidia/test_gemm_wgmma_bf16_square.py`
+
+Build/run command:
+
+```bash
+cd /workspace/avelang
+PYTHONPATH=python python benchmark/gemm/bench_nvidia_wgmma_bf16_square.py --sizes 1024 2048 4096 8192 16384
+```
+
+The benchmark uses the same CUDA event and CUDAGraph replay timing pattern as
+`benchmark/gemm/bench_amdgpu_gemm.py`. Effective throughput is computed as
+`2*M*N*K / avg_time`. The repeat counts match the cuBLASLt benchmark table: 200,
+100, 50, 20, and 5.
+
+### Avelang Environment
+
+- Date: 2026-06-24
+- Host path: `/workspace/avelang`
+- Selected CUDA device: 2
+- GPU: NVIDIA H100 PCIe
+- Kernel: BF16 square GEMM using Hopper WGMMA intrinsics and 128B swizzled shared-memory descriptors
+- Runtime status: succeeded
+
+### Avelang WGMMA BF16 Square GEMM Results
+
+| M | N | K | Repeats | Avg time (ms) | Effective TFLOPS | Estimated bandwidth (GB/s) |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1024 | 1024 | 1024 | 200 | 0.1409 | 15.239 | 44.646 |
+| 2048 | 2048 | 2048 | 100 | 0.5943 | 28.909 | 42.347 |
+| 4096 | 4096 | 4096 | 50 | 3.8410 | 35.782 | 26.208 |
+| 8192 | 8192 | 8192 | 20 | 31.6962 | 34.689 | 12.704 |
+| 16384 | 16384 | 16384 | 5 | 253.6487 | 34.678 | 6.350 |
+
+Captured output:
+
+```text
+M=1024 N=1024 K=1024 time_ms=0.1409 tflops=15.239 bandwidth_gbs=44.646 device=2
+M=2048 N=2048 K=2048 time_ms=0.5943 tflops=28.909 bandwidth_gbs=42.347 device=2
+M=4096 N=4096 K=4096 time_ms=3.8410 tflops=35.782 bandwidth_gbs=26.208 device=2
+M=8192 N=8192 K=8192 time_ms=31.6962 tflops=34.689 bandwidth_gbs=12.704 device=2
+M=16384 N=16384 K=16384 time_ms=253.6487 tflops=34.678 bandwidth_gbs=6.350 device=2
+```
