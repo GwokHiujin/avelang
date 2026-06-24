@@ -159,7 +159,8 @@ module {
     %c1 = arith.constant 1 : i32
     %strides = ave.make_int_tuple %c16, %c1 {is_tuple = true} : i32, i32 -> none
     %layout = ave.make_layout %dims, %strides : (none, none) -> !ave.layout
-    %desc = ave.gpu.nvvm_tma_descriptor %arg0, %layout : !ave.memref<!ave.layout<dims = [16, 16], strides = [16, 1]>, f32>, !ave.layout -> !nvgpu.tensormap.descriptor<tensor = memref<16x16xf32, strided<[16, 1]>, 3>, swizzle = none, l2promo = none, oob = zero, interleave = none>
+    %swizzle = arith.constant 0 : index
+    %desc = ave.gpu.nvvm_tma_descriptor %arg0, %layout, %swizzle : !ave.memref<!ave.layout<dims = [16, 16], strides = [16, 1]>, f32>, !ave.layout, index -> !nvgpu.tensormap.descriptor<tensor = memref<16x16xf32, strided<[16, 1]>, 3>, swizzle = none, l2promo = none, oob = zero, interleave = none>
     return
   }
 })";
