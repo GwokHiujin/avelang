@@ -7,11 +7,11 @@
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
-#include <mlir/Dialect/NVGPU/IR/NVGPUDialect.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/Dialect/LLVMIR/NVVMDialect.h>
 #include <mlir/Dialect/LLVMIR/ROCDLDialect.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
+#include <mlir/Dialect/NVGPU/IR/NVGPUDialect.h>
 #include <mlir/Dialect/Vector/IR/VectorOps.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinOps.h>
@@ -37,7 +37,6 @@ namespace causalflow::avelang::dialect {
 namespace amdgpu_mfma = causalflow::avelang::amdgpu::mfma;
 
 namespace {
-
 
 static mlir::MemRefType getBuiltinTensorMapMemRefType(mlir::Type type) {
     if (auto builtinType = mlir::dyn_cast<mlir::MemRefType>(type)) {
@@ -504,7 +503,6 @@ class NVVMStMatrixLowering : public mlir::OpRewritePattern<NVVMStMatrixOp> {
     }
 };
 
-
 class NVVMTMADescriptorLowering
     : public mlir::OpRewritePattern<NVVMTMADescriptorOp> {
   public:
@@ -538,8 +536,6 @@ class NVVMTMADescriptorLowering
         unsigned argIndex = funcOp.getNumArguments();
         auto descriptorPtrType =
             mlir::LLVM::LLVMPointerType::get(rewriter.getContext());
-        // GPU outlining uses this marker to apply the CUDA TMA argument ABI
-        // once the argument belongs to a kernel.
         auto attrs = rewriter.getDictionaryAttr(
             {rewriter.getNamedAttr("ave.nv_tma_desc",
                                    rewriter.getUnitAttr())});
@@ -686,10 +682,11 @@ class LowerAveLangGPUToIntrinsicsPass
 
     void runOnOperation() override {
         mlir::RewritePatternSet patterns(&getContext());
-        patterns.add<NVVMMmaLowering, NVVMLdMatrixLowering,
-                     NVVMStMatrixLowering, NVVMTMADescriptorLowering, AMDGPUMfmaLowering,
-                     AMDGPURawBufferLoadLowering, AMDGPURawBufferStoreLowering>(
-            &getContext());
+        patterns
+            .add<NVVMMmaLowering, NVVMLdMatrixLowering, NVVMStMatrixLowering,
+                 NVVMTMADescriptorLowering, AMDGPUMfmaLowering,
+                 AMDGPURawBufferLoadLowering, AMDGPURawBufferStoreLowering>(
+                &getContext());
 
         if (mlir::failed(mlir::applyPatternsGreedily(getOperation(),
                                                      std::move(patterns)))) {

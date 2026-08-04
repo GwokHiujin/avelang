@@ -117,6 +117,10 @@ class GpuOutliningPass
                     }
                 }
                 if (!tmaDescriptorIndices.empty()) {
+                    // Upstream GPUFuncOpLowering only propagates a fixed set
+                    // of argument attributes. Preserve the descriptor
+                    // positions as a function attribute until the LLVM
+                    // function signature is available.
                     gpuFunc->setAttr(
                         "ave.nv_tma_desc_indices",
                         builder.getDenseI32ArrayAttr(tmaDescriptorIndices));
