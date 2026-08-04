@@ -130,7 +130,7 @@ static inline void gpuAssert(hipError_t code, const char *file, int line)
       err += hipGetErrorString(code);
       PyGILState_STATE gil_state;
       gil_state = PyGILState_Ensure();
-      PyErr_SetString(PyExc_RuntimeError, err.c_str());
+      PyErr_SetString(PyExc_RuntimeError, err);
       PyGILState_Release(gil_state);
    }
 }

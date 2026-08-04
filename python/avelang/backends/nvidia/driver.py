@@ -69,13 +69,14 @@ static inline void gpuAssert(CUresult code, const char *file, int line)
 {
    if (code != CUDA_SUCCESS)
    {
+      const char* prefix = "ave-lang Error [CUDA]: ";
       const char* str;
       cuGetErrorString(code, &str);
       std::string err = "ave-lang Error [CUDA]: ";
       err += str;
       PyGILState_STATE gil_state;
       gil_state = PyGILState_Ensure();
-      PyErr_SetString(PyExc_RuntimeError, err.c_str());
+      PyErr_SetString(PyExc_RuntimeError, err);
       PyGILState_Release(gil_state);
    }
 }
