@@ -152,8 +152,14 @@ class GpuOutliningPass
 
                 for (auto allocaOp : workgroupAllocaOps) {
                     auto memrefType = allocaOp.getType();
+                    unsigned attributionIndex =
+                        gpuFunc.getNumWorkgroupAttributions();
                     auto workgroupArg = gpuFunc.addWorkgroupAttribution(
                         memrefType, allocaOp.getLoc());
+                    if (auto alignment = allocaOp.getAlignmentAttr()) {
+                        gpuFunc.setWorkgroupAttributionAttr(
+                            attributionIndex, "llvm.align", alignment);
+                    }
                     allocaOp.getResult().replaceAllUsesWith(workgroupArg);
                     allocaOp.erase();
                 }

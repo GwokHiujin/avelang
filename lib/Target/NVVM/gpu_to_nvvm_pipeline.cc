@@ -26,43 +26,8 @@ namespace causalflow::avelang::target::nvvm {
 using namespace mlir;
 
 static const int kIndexBitwidth = 64;
-static const int64_t kNVVMWorkgroupAttributionAlignment = 128;
 
 namespace {
-
-class SetNVVMWorkgroupAttributionAlignPass
-    : public PassWrapper<SetNVVMWorkgroupAttributionAlignPass,
-                         OperationPass<gpu::GPUModuleOp>> {
-  public:
-    MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(
-        SetNVVMWorkgroupAttributionAlignPass)
-
-    void runOnOperation() override {
-        Builder builder(&getContext());
-        getOperation().walk([&](gpu::GPUFuncOp func) {
-            for (unsigned index = 0,
-                          end = func.getNumWorkgroupAttributions();
-                 index < end; ++index) {
-                func.setWorkgroupAttributionAttr(
-                    index, LLVM::LLVMDialect::getAlignAttrName(),
-                    builder.getI64IntegerAttr(
-                        kNVVMWorkgroupAttributionAlignment));
-            }
-        });
-    }
-
-    StringRef getArgument() const final {
-        return "set-nvvm-workgroup-attribution-align";
-    }
-
-    StringRef getDescription() const final {
-        return "Set NVVM workgroup attribution alignment";
-    }
-};
-
-static std::unique_ptr<Pass> createSetNVVMWorkgroupAttributionAlignPass() {
-    return std::make_unique<SetNVVMWorkgroupAttributionAlignPass>();
-}
 
 class SetNVVMTmaDescriptorABIAttributesPass
     : public PassWrapper<SetNVVMTmaDescriptorABIAttributesPass,
@@ -146,8 +111,6 @@ static void buildGpuPassPipeline(OpPassManager &pm,
     nvvmOptions.triple = options.triple;
     nvvmOptions.optLevel = options.optimization_level;
     pm.addPass(createGpuNVVMAttachTarget(nvvmOptions));
-    pm.addNestedPass<gpu::GPUModuleOp>(
-        createSetNVVMWorkgroupAttributionAlignPass());
 
     ConvertGpuOpsToNVVMOpsOptions convertOptions;
     convertOptions.indexBitwidth = kIndexBitwidth;

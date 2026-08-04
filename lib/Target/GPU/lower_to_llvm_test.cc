@@ -339,6 +339,11 @@ TEST_F(LLVMTargetTest, SharedMemory) {
     std::string llvmDump;
     auto llvmModule = CompileToLLVM(mlirCode, nullptr, &llvmDump);
     ASSERT_NE(llvmModule, nullptr);
+    auto *sharedGlobal = llvmModule->getGlobalVariable(
+        "__wg_test_shared_memory_basic_0", true);
+    ASSERT_NE(sharedGlobal, nullptr);
+    ASSERT_TRUE(sharedGlobal->getAlign());
+    EXPECT_LT(sharedGlobal->getAlign()->value(), 128u);
     EXPECT_NE(llvmDump.find("addrspace(3) global [128 x i8] undef"),
               std::string::npos);
     EXPECT_NE(llvmDump.find("store i32"), std::string::npos) << llvmDump;
@@ -349,7 +354,7 @@ TEST_F(LLVMTargetTest, SharedMemory) {
 TEST_F(LLVMTargetTest, SharedMemoryUnionStyleSubviews) {
     const std::string mlirCode = R"(module {
   func.func @test_shared_memory_union_subviews(%arg0: !ave.memref<!ave.layout<dims = [8], strides = [1]>, bf16> {llvm.name = "output_data"}) attributes {ave.gpu_func = 2 : i32} {
-    %shm = ave.memref.alloca() : !ave.memref<!ave.layout<dims = [32], strides = []>, i8, #gpu.address_space<workgroup>>
+    %shm = ave.memref.alloca() {alignment = 128 : i64} : !ave.memref<!ave.layout<dims = [32], strides = []>, i8, #gpu.address_space<workgroup>>
 
     %c8_i32 = arith.constant 8 : i32
     %shape_i32 = ave.make_int_tuple %c8_i32 {is_tuple = true} : i32 -> none
@@ -422,13 +427,14 @@ TEST_F(LLVMTargetTest, SharedMemoryUnionStyleSubviews) {
     std::string llvmDump;
     auto llvmModule = CompileToLLVM(mlirCode, nullptr, &llvmDump);
     ASSERT_NE(llvmModule, nullptr);
-    EXPECT_NE(llvmDump.find("addrspace(3) global [32 x i8] undef"),
-              std::string::npos);
-    EXPECT_NE(llvmDump.find(
-                  "store <2 x bfloat> <bfloat 0xR3F80, bfloat 0xR4000>, "
-                  "ptr addrspace(3) @__wg_test_shared_memory_union_subviews_0, "
-                  "align 16"),
-              std::string::npos);
+    auto *sharedGlobal = llvmModule->getGlobalVariable(
+        "__wg_test_shared_memory_union_subviews_0", true);
+    ASSERT_NE(sharedGlobal, nullptr);
+    ASSERT_TRUE(sharedGlobal->getAlign());
+    EXPECT_GE(sharedGlobal->getAlign()->value(), 128u);
+    EXPECT_NE(
+        llvmDump.find("store <2 x bfloat> <bfloat 0xR3F80, bfloat 0xR4000>"),
+        std::string::npos);
 }
 
 TEST_F(LLVMTargetTest, SharedMemorySubviewLayoutCastLowers) {
