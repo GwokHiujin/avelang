@@ -372,10 +372,10 @@ class TestWgmmaBf16SquareGemm(unittest.TestCase):
         gemm_wgmma_bf16_square_kernel[lambda: (grid, block)](a, b, c, size)
         torch.cuda.synchronize(self.device)
 
-        expected = torch.full_like(c, float(size))
-        max_diff = torch.max(torch.abs(c.float() - expected.float()))
-        self.assertTrue(
-            torch.equal(c, expected),
+        max_diff = c.float().sub_(float(size)).abs_().max().item()
+        self.assertEqual(
+            max_diff,
+            0.0,
             msg=(
                 f"WGMMA BF16 square GEMM mismatch for size {size}. "
                 f"Max absolute difference: {max_diff}"
