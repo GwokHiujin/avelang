@@ -328,6 +328,11 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
+    mlir::Value CreateNamedBarrierFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args,
+        bool arrive) const;
+
     mlir::Value CreateFenceProxyAsyncSharedCTAFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
@@ -496,6 +501,11 @@ class NVVMIntrinsic : public NamedModule {
     bool CheckElectSyncFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckNamedBarrierFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args,
+        llvm::StringRef name) const;
 
     bool CheckFenceProxyAsyncSharedCTAFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
@@ -701,6 +711,36 @@ void NVVMIntrinsic::Initialize() {
         [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
                llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
             return CheckElectSyncFunction(call_expr, gen_ctx, resolved_args);
+        });
+
+    AddFunction(
+        "named_barrier_sync",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateNamedBarrierFunction(call_expr, gen_ctx,
+                                              resolved_args,
+                                              /*arrive=*/false);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckNamedBarrierFunction(call_expr, gen_ctx,
+                                             resolved_args,
+                                             "named_barrier_sync");
+        });
+
+    AddFunction(
+        "named_barrier_arrive",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateNamedBarrierFunction(call_expr, gen_ctx,
+                                              resolved_args,
+                                              /*arrive=*/true);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckNamedBarrierFunction(call_expr, gen_ctx,
+                                             resolved_args,
+                                             "named_barrier_arrive");
         });
 
     AddFunction(
@@ -1670,6 +1710,59 @@ bool NVVMIntrinsic::CheckElectSyncFunction(
                                         call_expr->GetSourceRange().getBegin())
             << "elect_sync membermask must be an integer";
         return false;
+    }
+    return true;
+}
+
+mlir::Value NVVMIntrinsic::CreateNamedBarrierFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args, bool arrive) const {
+    llvm::StringRef name =
+        arrive ? "named_barrier_arrive" : "named_barrier_sync";
+    if (!CheckNamedBarrierFunction(call_expr, ctx, resolved_args, name)) {
+        return nullptr;
+    }
+
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    auto barrierId = castIntegerTo(builder, location, resolved_args[0],
+                                   builder.getI32Type());
+    auto threadCount = castIntegerTo(builder, location, resolved_args[1],
+                                     builder.getI32Type());
+    mlir::LLVM::InlineAsmOp::create(
+        builder, location, mlir::TypeRange{},
+        mlir::ValueRange{barrierId, threadCount},
+        arrive ? "bar.arrive $0, $1;" : "bar.sync $0, $1;",
+        "r,r,~{memory}", /*hasSideEffects=*/true,
+        /*isAlignStack=*/false,
+        mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+    return ctx->GetCurrentFunctionGenerator()
+        ->GetExprGenerator()
+        ->CreateVoidValue();
+}
+
+bool NVVMIntrinsic::CheckNamedBarrierFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args, llvm::StringRef name) const {
+    auto report = [&](llvm::StringRef message) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << name << " " << message;
+        return false;
+    };
+    if (resolved_args.size() != 2 || !resolved_args[0] || !resolved_args[1] ||
+        !resolved_args[0].getType().isIntOrIndex() ||
+        !resolved_args[1].getType().isIntOrIndex()) {
+        return report("requires integer barrier_id and thread_count operands");
+    }
+    if (auto id = getConstantIntValue(resolved_args[0]);
+        id && (*id < 0 || *id > 15)) {
+        return report("barrier_id must be in [0, 15]");
+    }
+    if (auto count = getConstantIntValue(resolved_args[1]);
+        count && (*count <= 0 || *count % 32 != 0)) {
+        return report("thread_count must be a positive multiple of 32");
     }
     return true;
 }

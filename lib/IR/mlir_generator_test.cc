@@ -1575,6 +1575,20 @@ def elect_sync_test(dst: S.Tensor((1,), S.i32)):
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMNamedBarriers) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def named_barrier_test(barrier_id: S.i32, thread_count: S.i32):
+    S.nvvm.named_barrier_arrive(barrier_id, thread_count)
+    S.nvvm.named_barrier_sync(barrier_id, thread_count)
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMWgmmaRS) {
     static const std::string kSourceCode = R"""""(
 import avelang
