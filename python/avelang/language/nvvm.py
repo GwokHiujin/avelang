@@ -69,6 +69,10 @@ def wgmma_wait_group_sync(group: int):
     pass
 
 
+def fence_proxy_async_shared_cta():
+    pass
+
+
 def make_wgmma_descriptor(
     tensor, swizzle_kind: int, l2promo_kind: int, oob_kind: int,
     interleave_kind: int

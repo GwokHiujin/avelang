@@ -72,6 +72,7 @@ def kernel_tma_store_tiles(out: S.Tensor((32, 32), S.f16)):
         smem[tid, j] = S.convert(value, S.f16)
 
     S.syncthreads()
+    S.nvvm.fence_proxy_async_shared_cta()
     S.nvvm.tma_store(smem, desc, (tile_n, tile_m), predicate=tid == 0)
 
 
@@ -108,7 +109,7 @@ class TestNVVMTMAOps(unittest.TestCase):
             ),
         )
 
-    def test_tma_store_writes_all_tiles(self):
+    def test_async_proxy_fence_before_tma_store(self):
         out = torch.zeros((32, 32), dtype=torch.float16, device=self.device)
         expected = torch.arange(
             32 * 32, dtype=torch.float16, device=self.device
