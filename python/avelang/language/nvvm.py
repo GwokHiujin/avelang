@@ -109,6 +109,10 @@ def cluster_block_rank():
     pass
 
 
+def griddepcontrol_wait():
+    pass
+
+
 def fence_proxy_async_shared_cta():
     pass
 

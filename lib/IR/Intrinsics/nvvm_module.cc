@@ -328,6 +328,10 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
+    mlir::Value CreateGriddepcontrolWaitFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
     mlir::Value CreateFenceProxyAsyncSharedCTAFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
@@ -514,7 +518,7 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
-    bool CheckClusterSyncFunction(
+    bool CheckNoArgumentFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args,
         llvm::StringRef name) const;
@@ -786,8 +790,8 @@ void NVVMIntrinsic::Initialize() {
             },
             [this, name](ast::Call *call_expr, GeneratorContext *gen_ctx,
                          llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
-                return CheckClusterSyncFunction(call_expr, gen_ctx,
-                                                resolved_args, name);
+                return CheckNoArgumentFunction(call_expr, gen_ctx,
+                                               resolved_args, name);
             });
     }
 
@@ -800,8 +804,21 @@ void NVVMIntrinsic::Initialize() {
         },
         [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
                llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
-            return CheckClusterSyncFunction(call_expr, gen_ctx, resolved_args,
-                                            "cluster_block_rank");
+            return CheckNoArgumentFunction(call_expr, gen_ctx, resolved_args,
+                                           "cluster_block_rank");
+        });
+
+    AddFunction(
+        "griddepcontrol_wait",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateGriddepcontrolWaitFunction(call_expr, gen_ctx,
+                                                    resolved_args);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckNoArgumentFunction(call_expr, gen_ctx, resolved_args,
+                                           "griddepcontrol_wait");
         });
 
     AddFunction(
@@ -1905,7 +1922,7 @@ bool NVVMIntrinsic::CheckSyncWarpFunction(
 mlir::Value NVVMIntrinsic::CreateClusterSyncFunction(
     ast::Call *call_expr, GeneratorContext *ctx,
     llvm::ArrayRef<mlir::Value> resolved_args, llvm::StringRef name) const {
-    if (!CheckClusterSyncFunction(call_expr, ctx, resolved_args, name)) {
+    if (!CheckNoArgumentFunction(call_expr, ctx, resolved_args, name)) {
         return nullptr;
     }
 
@@ -1925,7 +1942,7 @@ mlir::Value NVVMIntrinsic::CreateClusterSyncFunction(
         ->CreateVoidValue();
 }
 
-bool NVVMIntrinsic::CheckClusterSyncFunction(
+bool NVVMIntrinsic::CheckNoArgumentFunction(
     ast::Call *call_expr, GeneratorContext *ctx,
     llvm::ArrayRef<mlir::Value> resolved_args, llvm::StringRef name) const {
     if (!resolved_args.empty()) {
@@ -1940,14 +1957,30 @@ bool NVVMIntrinsic::CheckClusterSyncFunction(
 mlir::Value NVVMIntrinsic::CreateClusterBlockRankFunction(
     ast::Call *call_expr, GeneratorContext *ctx,
     llvm::ArrayRef<mlir::Value> resolved_args) const {
-    if (!CheckClusterSyncFunction(call_expr, ctx, resolved_args,
-                                  "cluster_block_rank")) {
+    if (!CheckNoArgumentFunction(call_expr, ctx, resolved_args,
+                                 "cluster_block_rank")) {
         return nullptr;
     }
     auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
     return mlir::NVVM::ClusterId::create(builder, builder.getUnknownLoc(),
                                          builder.getI32Type())
         .getRes();
+}
+
+mlir::Value NVVMIntrinsic::CreateGriddepcontrolWaitFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (!CheckNoArgumentFunction(call_expr, ctx, resolved_args,
+                                 "griddepcontrol_wait")) {
+        return nullptr;
+    }
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    mlir::NVVM::GriddepcontrolOp::create(
+        builder, builder.getUnknownLoc(),
+        mlir::NVVM::GridDepActionKind::wait);
+    return ctx->GetCurrentFunctionGenerator()
+        ->GetExprGenerator()
+        ->CreateVoidValue();
 }
 
 mlir::Value NVVMIntrinsic::CreateFenceProxyAsyncSharedCTAFunction(
