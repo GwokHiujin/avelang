@@ -99,6 +99,10 @@ def wgmma_m64n128k16_f32_bf16_bf16_rs(a, desc_b, acc, scale_d: int):
     pass
 
 
+def wgmma_m64n192k32_f32_e4m3_e4m3(desc_a, desc_b, acc, scale_d: int):
+    pass
+
+
 def wgmma_async(desc_a, desc_b, acc):
     pass
 
