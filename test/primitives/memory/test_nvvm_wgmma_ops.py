@@ -246,6 +246,47 @@ def kernel_nvvm_wgmma_bf16_rs(
         out[tid, i] = result[i]
 
 
+@avelang.jit
+def kernel_nvvm_wgmma_fp8(
+    a: S.Tensor((64, 32), S.u8),
+    b: S.Tensor((32, 192), S.u8),
+    out: S.Tensor((128, 96), S.f32),
+):
+    tid = S.thread_id(0)
+    a_shared = S.make_shared((64, 32), S.u8, 128)
+    b_shared = S.make_shared((32, 192), S.u8, 128)
+    for i in S.range(16):
+        idx = tid + i * 128
+        row = idx // 32
+        col = idx % 32
+        a_shared[row, col] = a[row, col]
+    for i in S.range(48):
+        idx = tid + i * 128
+        row = idx // 192
+        col = idx % 192
+        b_shared[row, col] = b[row, col]
+
+    S.syncthreads()
+    desc_a = S.nvvm.make_wgmma_descriptor_bits(
+        a_shared, WGMMA_SWIZZLE_32B, 0, 0, 0
+    )
+    desc_b = S.nvvm.make_wgmma_descriptor_bits(
+        b_shared, WGMMA_SWIZZLE_32B, 0, 0, 0
+    )
+    result = S.nvvm.wgmma_init_result(96)
+    S.nvvm.wgmma_fence_aligned()
+    result = S.nvvm.wgmma_m64n192k32_f32_e4m3_e4m3(
+        desc_a, desc_b, result, 0
+    )
+    result = S.nvvm.wgmma_m64n192k32_f32_e4m3_e4m3(
+        desc_a, desc_b, result, 1
+    )
+    S.nvvm.wgmma_group_sync_aligned()
+    S.nvvm.wgmma_wait_group_sync(0)
+    for i in S.range(96):
+        out[tid, i] = result[i]
+
+
 @unittest.skipUnless(
     get_wgmma_device() is not None,
     "Requires CUDA on an NVIDIA Hopper-or-newer GPU with WGMMA support.",
@@ -347,6 +388,23 @@ class TestNVVMWGMMAOps(unittest.TestCase):
         ](a_regs, b, out)
 
         self.assertTrue(torch.equal(out.cpu(), torch.full((128, 64), 16.0)))
+
+    def test_wgmma_fp8_e4m3_scale_d(self):
+        device_idx = get_wgmma_device()
+        assert device_idx is not None
+        torch.cuda.set_device(device_idx)
+        device = torch.device(f"cuda:{device_idx}")
+        # E4M3 encoding of 1.0 (sign=0, exponent=7, mantissa=0).
+        a = torch.full((64, 32), 0x38, dtype=torch.uint8, device=device)
+        b = torch.full((32, 192), 0x38, dtype=torch.uint8, device=device)
+        out = torch.zeros((128, 96), dtype=torch.float32, device=device)
+
+        kernel_nvvm_wgmma_fp8[
+            lambda: ((1, 1, 1), (128, 1, 1))
+        ](a, b, out)
+
+        # One scale_D=0 operation followed by scale_D=1 accumulates 32 twice.
+        self.assertTrue(torch.equal(out.cpu(), torch.full((128, 96), 64.0)))
 
 
 if __name__ == "__main__":

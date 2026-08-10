@@ -1565,6 +1565,26 @@ def wgmma_rs_test(a: S.Tensor((1, 4), S.i32), dst: S.Tensor((64,), S.f32)):
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMWgmmaFP8) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def wgmma_fp8_test(dst: S.Tensor((96,), S.f32)):
+    smem_a = S.make_shared((64, 32), S.u8, 128)
+    smem_b = S.make_shared((32, 192), S.u8, 128)
+    desc_a = S.nvvm.make_wgmma_descriptor_bits(smem_a, 1, 0, 0, 0)
+    desc_b = S.nvvm.make_wgmma_descriptor_bits(smem_b, 1, 0, 0, 0)
+    acc = S.nvvm.wgmma_init_result(96)
+    acc = S.nvvm.wgmma_m64n192k32_f32_e4m3_e4m3(desc_a, desc_b, acc, 0)
+    acc = S.nvvm.wgmma_m64n192k32_f32_e4m3_e4m3(desc_a, desc_b, acc, 1)
+    dst[0] = acc[0]
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMMBarrier) {
     static const std::string kSourceCode = R"""""(
 import avelang
