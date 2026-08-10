@@ -126,7 +126,7 @@ def make_wgmma_descriptor(
 
 def make_wgmma_descriptor_bits(
     tensor, swizzle_kind: int, l2promo_kind: int, oob_kind: int,
-    interleave_kind: int
+    interleave_kind: int, leading_byte_offset=None, stride_byte_offset=None
 ):
     pass
 
@@ -139,7 +139,19 @@ def wgmma_m64n64k16_f32_bf16_bf16(desc_a, desc_b, acc, scale_d: int):
     pass
 
 
+def wgmma_m64n128k16_f32_bf16_bf16(desc_a, desc_b, acc, scale_d: int):
+    pass
+
+
 def wgmma_m64n128k16_f32_bf16_bf16_rs(a, desc_b, acc, scale_d: int):
+    pass
+
+
+def wgmma_m64n128k128_f32_bf16_bf16_ss(desc_a, desc_b):
+    pass
+
+
+def wgmma_m64n128k128_f32_bf16_bf16_rs(a0, a1, a2, a3, a4, a5, a6, a7, desc_b, acc):
     pass
 
 
@@ -152,6 +164,22 @@ def float_to_fp8(value):
 
 
 def floatx2_to_fp8x2(value0, value1):
+    pass
+
+
+def floatx2_to_bf16x2(value0, value1):
+    pass
+
+
+def fmax(value0, value1):
+    pass
+
+
+def fast_exp2(value):
+    pass
+
+
+def fma(a, b, c):
     pass
 
 
@@ -286,7 +314,7 @@ def tma_prefetch_descriptor(desc):
 
 def tma_load(
     dst, desc, coords, barrier, mbar_id=0, predicate=True,
-    multicast_mask=None
+    multicast_mask=None, expect_tx=True
 ):
     pass
 

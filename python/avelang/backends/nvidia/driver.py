@@ -199,7 +199,7 @@ def make_launcher(constants, signature, tma_specs=None) -> str:
             raise ValueError(f"Unknown type: {ty}")
 
     # Grid and block dimensions and function
-    _BASE_ARGS_FORMAT = "iiiiiiKK"
+    _BASE_ARGS_FORMAT = "iiiiiiKKi"
 
     def _flatten_signature(sig, output):
         # Flatten tuples
@@ -307,7 +307,8 @@ def make_launcher(constants, signature, tma_specs=None) -> str:
         swizzle = tma_swizzle_to_cpp(spec.get("swizzle_kind", 0))
         tma_decl_list.append(
             f"""
-    CUtensorMap tma_desc{i} __attribute__((aligned(128)));
+    static thread_local CUtensorMap tma_desc{i} __attribute__((aligned(128)));
+    static thread_local CUdeviceptr tma_base{i} = 0;
     cuuint64_t tma_global_dims{i}[{rank}] = {{{global_dims}}};
     cuuint32_t tma_box_dims{i}[{rank}] = {{{box_dims}}};
     cuuint32_t tma_element_strides{i}[{rank}] = {{{element_strides}}};
@@ -319,37 +320,41 @@ def make_launcher(constants, signature, tma_specs=None) -> str:
             )
         tma_decl_list.append(
             f"""
+    if (tma_base{i} != arg{spec["arg_index"]}) {{
     CUDA_CHECK(cuTensorMapEncodeTiled(
         &tma_desc{i}, {spec["dtype"]}, {rank},
         (void *)arg{spec["arg_index"]}, tma_global_dims{i}, {strides_arg},
         tma_box_dims{i}, tma_element_strides{i},
         CU_TENSOR_MAP_INTERLEAVE_NONE, {swizzle},
         CU_TENSOR_MAP_L2_PROMOTION_NONE, CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE));
+        tma_base{i} = arg{spec["arg_index"]};
+    }}
 """
         )
     tma_decls = "".join(tma_decl_list)
 
     cuda_launch = f"""
-static void CudaLaunch(int grid_x, int grid_y, int grid_z, int block_x, int block_y, int block_z, CUstream stream, CUfunction func{", " + arg_decl if arg_decl else ""}) {{
+static void CudaLaunch(int grid_x, int grid_y, int grid_z, int block_x, int block_y, int block_z, CUstream stream, CUfunction func, int shared{", " + arg_decl if arg_decl else ""}) {{
 {tma_decls}
 {params_decl}
-    CUDA_CHECK(cuLaunchKernel(func, grid_x, grid_y, grid_z, block_x, block_y, block_z, 0, stream, {params_arg}, NULL));
+    CUDA_CHECK(cuLaunchKernel(func, grid_x, grid_y, grid_z, block_x, block_y, block_z, shared, stream, {params_arg}, NULL));
 }} 
 
 static PyObject *PyLaunch(PyObject *self, PyObject *args) {{
     int grid_x, grid_y, grid_z, block_x, block_y, block_z;
     unsigned long long stream;
     CUfunction func;
+    int shared;
     {extracted_decls}
 
     ensureCudaContext();
-    if (!PyArg_ParseTuple(args, "{format}", &grid_x, &grid_y, &grid_z, &block_x, &block_y, &block_z, &stream, &func {args_list})) {{
+    if (!PyArg_ParseTuple(args, "{format}", &grid_x, &grid_y, &grid_z, &block_x, &block_y, &block_z, &stream, &func, &shared {args_list})) {{
         return NULL;
     }}
     {ptr_decls_text}
 
     Py_BEGIN_ALLOW_THREADS;
-    CudaLaunch(grid_x, grid_y, grid_z, block_x, block_y, block_z, (CUstream)stream, func{launch_args});
+    CudaLaunch(grid_x, grid_y, grid_z, block_x, block_y, block_z, (CUstream)stream, func, shared{launch_args});
     Py_END_ALLOW_THREADS;
 
     if (PyErr_Occurred()) {{
@@ -363,6 +368,7 @@ static PyObject *PyLaunch(PyObject *self, PyObject *args) {{
 
 class CudaLauncher:
     def __init__(self, src):
+        self.shared = 0
         constants = src.constants if hasattr(src, "constants") else dict()
 
         def arg_idx(x):
@@ -371,7 +377,10 @@ class CudaLauncher:
         constants = {arg_idx(idx): value for idx, value in constants.items()}
         signature = {idx: value for idx, value in src.signature.items()}
         tma_specs = []
-        for spec in getattr(src, "tma_specs", []):
+        # Descriptor lowering is a greedy rewrite and appends kernel ABI
+        # arguments in reverse operation order. Mirror that ABI order when
+        # constructing the launch parameter array.
+        for spec in reversed(getattr(src, "tma_specs", [])):
             spec = dict(spec)
             arg_name = spec.pop("arg_name", None)
             if arg_name is not None:
@@ -389,7 +398,18 @@ class CudaLauncher:
         self.launch = mod.launch
 
     def __call__(self, gridX, gridY, gridZ, blockX, blockY, blockZ, stream, function, *args):
-        return self.launch(gridX, gridY, gridZ, blockX, blockY, blockZ, stream, function, *args)
+        return self.launch(
+            gridX,
+            gridY,
+            gridZ,
+            blockX,
+            blockY,
+            blockZ,
+            stream,
+            function,
+            self.shared,
+            *args,
+        )
 
 
 class NvidiaDriver(GPUDriver):
