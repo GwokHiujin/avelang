@@ -80,6 +80,21 @@ def make_wgmma_descriptor(
     pass
 
 
+def make_wgmma_descriptor_bits(
+    tensor, swizzle_kind: int, l2promo_kind: int, oob_kind: int,
+    interleave_kind: int
+):
+    pass
+
+
+def wgmma_init_result(size: int):
+    pass
+
+
+def wgmma_m64n64k16_f32_bf16_bf16(desc_a, desc_b, acc, scale_d: int):
+    pass
+
+
 def wgmma_async(desc_a, desc_b, acc):
     pass
 
