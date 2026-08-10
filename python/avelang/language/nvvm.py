@@ -147,6 +147,14 @@ def wgmma_m64n192k32_f32_e4m3_e4m3(desc_a, desc_b, acc, scale_d: int):
     pass
 
 
+def float_to_fp8(value):
+    pass
+
+
+def floatx2_to_fp8x2(value0, value1):
+    pass
+
+
 def wgmma_async(desc_a, desc_b, acc):
     pass
 
