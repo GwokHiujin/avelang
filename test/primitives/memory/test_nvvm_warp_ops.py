@@ -32,6 +32,12 @@ def kernel_setmaxnreg(out: S.Tensor((128,), S.i32)):
     out[tid] = S.convert(tid, S.i32)
 
 
+@avelang.jit
+def kernel_elect_sync(out: S.Tensor((128,), S.i32)):
+    tid = S.thread_id(0)
+    out[tid] = S.convert(S.nvvm.elect_sync(), S.i32)
+
+
 @unittest.skipUnless(
     get_hopper_device() is not None,
     "Requires CUDA on an NVIDIA Hopper-or-newer GPU.",
@@ -48,6 +54,18 @@ class TestNVVMWarpOps(unittest.TestCase):
 
         expected = torch.arange(128, dtype=torch.int32)
         self.assertTrue(torch.equal(out.cpu(), expected))
+
+    def test_elect_sync(self):
+        device_idx = get_hopper_device()
+        assert device_idx is not None
+        torch.cuda.set_device(device_idx)
+        device = torch.device(f"cuda:{device_idx}")
+        out = torch.zeros((128,), dtype=torch.int32, device=device)
+
+        kernel_elect_sync[lambda: ((1, 1, 1), (128, 1, 1))](out)
+
+        leaders_per_warp = (out.cpu().reshape(4, 32) != 0).sum(dim=1)
+        self.assertTrue(torch.equal(leaders_per_warp, torch.ones(4)))
 
 
 if __name__ == "__main__":

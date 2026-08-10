@@ -77,6 +77,10 @@ def setmaxnreg_dec(register_count: int):
     pass
 
 
+def elect_sync(membermask: int = 0xFFFFFFFF):
+    pass
+
+
 def fence_proxy_async_shared_cta():
     pass
 
