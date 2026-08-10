@@ -39,6 +39,17 @@ def kernel_cluster_rank(out: S.Tensor((32,), S.i32)):
     out[tid] = S.nvvm.cluster_block_rank()
 
 
+@avelang.jit
+def kernel_mbarrier_arrive_cluster(out: S.Tensor((32,), S.i32)):
+    tid = S.thread_id(0)
+    barrier = S.nvvm.mbarrier_create()
+    S.nvvm.mbarrier_init(barrier, 0, 1, tid == 0)
+    if tid == 0:
+        S.nvvm.mbarrier_arrive_cluster(barrier, 0, 0)
+    S.nvvm.mbarrier_try_wait_parity(barrier, 0, 10000000, 0)
+    out[tid] = S.convert(tid, S.i32)
+
+
 @unittest.skipUnless(
     get_hopper_device() is not None,
     "Requires CUDA on an NVIDIA Hopper-or-newer GPU.",
@@ -65,6 +76,19 @@ class TestNVVMClusterOps(unittest.TestCase):
         kernel_cluster_rank[lambda: ((1, 1, 1), (32, 1, 1))](out)
 
         self.assertTrue(torch.equal(out.cpu(), torch.zeros(32, dtype=torch.int32)))
+
+    def test_mbarrier_arrive_cluster_local_rank(self):
+        device_idx = get_hopper_device()
+        assert device_idx is not None
+        torch.cuda.set_device(device_idx)
+        device = torch.device(f"cuda:{device_idx}")
+        out = torch.full((32,), -1, dtype=torch.int32, device=device)
+
+        kernel_mbarrier_arrive_cluster[
+            lambda: ((1, 1, 1), (32, 1, 1))
+        ](out)
+
+        self.assertTrue(torch.equal(out.cpu(), torch.arange(32)))
 
 
 if __name__ == "__main__":

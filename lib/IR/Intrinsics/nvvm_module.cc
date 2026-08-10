@@ -428,6 +428,10 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
+    mlir::Value CreateMBarrierArriveClusterFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
     mlir::Value CreateMBarrierTestWaitFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
@@ -562,6 +566,10 @@ class NVVMIntrinsic : public NamedModule {
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
     bool CheckMBarrierArriveFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckMBarrierArriveClusterFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
@@ -983,6 +991,19 @@ void NVVMIntrinsic::Initialize() {
                llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
             return CheckMBarrierArriveFunction(call_expr, gen_ctx,
                                                resolved_args);
+        });
+
+    AddFunction(
+        "mbarrier_arrive_cluster",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateMBarrierArriveClusterFunction(call_expr, gen_ctx,
+                                                       resolved_args);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckMBarrierArriveClusterFunction(call_expr, gen_ctx,
+                                                      resolved_args);
         });
 
     AddFunction(
@@ -2852,6 +2873,80 @@ bool NVVMIntrinsic::CheckMBarrierArriveFunction(
     }
 
     return true;
+}
+
+mlir::Value NVVMIntrinsic::CreateMBarrierArriveClusterFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+
+    if (!CheckMBarrierArriveClusterFunction(call_expr, ctx, resolved_args)) {
+        return nullptr;
+    }
+
+    auto mbarId = castToIndex(builder, location, resolved_args[1]);
+    auto ctaId = castIntegerTo(builder, location, resolved_args[2],
+                               builder.getI32Type());
+    if (!mbarId || !ctaId) {
+        return nullptr;
+    }
+
+    // Retrieve the shared-memory address of the selected barrier before
+    // mapping it into the target CTA's cluster shared-memory address space.
+    auto sharedAddress = mlir::nvgpu::MBarrierGetOp::create(
+        builder, location, builder.getI32Type(), resolved_args[0], mbarId);
+    auto sharedPointerType = mlir::LLVM::LLVMPointerType::get(
+        builder.getContext(), static_cast<unsigned>(
+                                  mlir::NVVM::NVVMMemorySpace::Shared));
+    auto sharedPointer = mlir::LLVM::IntToPtrOp::create(
+        builder, location, sharedPointerType, sharedAddress.getResult());
+    auto clusterPointerType = mlir::LLVM::LLVMPointerType::get(
+        builder.getContext(), static_cast<unsigned>(
+                                  mlir::NVVM::NVVMMemorySpace::SharedCluster));
+    auto remotePointer = mlir::NVVM::MapaOp::create(
+        builder, location, clusterPointerType, sharedPointer.getResult(),
+        ctaId);
+    mlir::NVVM::MBarrierArriveOp::create(
+        builder, location, mlir::Type(), remotePointer.getResult(),
+        mlir::Value(), mlir::NVVM::MemScopeKind::CTA);
+
+    return ctx->GetCurrentFunctionGenerator()
+        ->GetExprGenerator()
+        ->CreateVoidValue();
+}
+
+bool NVVMIntrinsic::CheckMBarrierArriveClusterFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (resolved_args.size() != 3) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "mbarrier_arrive_cluster requires exactly 3 arguments: "
+               "barrier, mbarId, ctaId";
+        return false;
+    }
+
+    if (!resolved_args[0] || !resolved_args[1] || !resolved_args[2]) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "Failed to generate operands for mbarrier_arrive_cluster";
+        return false;
+    }
+
+    if (!mlir::isa<mlir::nvgpu::MBarrierGroupType>(
+            resolved_args[0].getType())) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "mbarrier_arrive_cluster operand must be of type "
+               "mbarrier_group_t";
+        return false;
+    }
+
+    return checkMBarrierIntegerOperand(call_expr, ctx, resolved_args[1],
+                                       "mbarrier_arrive_cluster", "mbarId") &&
+           checkMBarrierIntegerOperand(call_expr, ctx, resolved_args[2],
+                                       "mbarrier_arrive_cluster", "ctaId");
 }
 
 mlir::Value NVVMIntrinsic::CreateMBarrierTestWaitFunction(

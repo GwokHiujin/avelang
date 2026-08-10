@@ -1630,6 +1630,20 @@ def cluster_rank_test(dst: S.Tensor((1,), S.i32)):
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMMBarrierArriveCluster) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def mbarrier_arrive_cluster_test(mbar_id: S.i32, cta_id: S.i32):
+    barrier = S.nvvm.mbarrier_create(2)
+    S.nvvm.mbarrier_arrive_cluster(barrier, mbar_id, cta_id)
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMWgmmaRS) {
     static const std::string kSourceCode = R"""""(
 import avelang
