@@ -92,6 +92,16 @@ def kernel_runtime_mbarrier(
     out[stage * 32 + tid] = tid + S.convert(ready, S.i32) * 0
 
 
+@avelang.jit
+def kernel_tma_prefetch_descriptor(
+    tensor: S.Tensor((16, 16), S.f32), out: S.Tensor((1,), S.i32)
+):
+    smem_layout = S.make_layout((16, 16), (16, 1))
+    desc = S.nvvm.make_tma_descriptor(tensor, smem_layout)
+    S.nvvm.tma_prefetch_descriptor(desc)
+    out[0] = 7
+
+
 @unittest.skipUnless(
     get_tma_device() is not None,
     "Requires CUDA on an NVIDIA Hopper-or-newer GPU with TMA support.",
@@ -154,6 +164,19 @@ class TestNVVMTMAOps(unittest.TestCase):
         torch.cuda.synchronize(self.device)
 
         self.assertTrue(torch.equal(out, expected))
+
+    def test_tma_prefetch_descriptor(self):
+        tensor = torch.zeros(
+            (16, 16), dtype=torch.float32, device=self.device
+        )
+        out = torch.zeros((1,), dtype=torch.int32, device=self.device)
+
+        kernel_tma_prefetch_descriptor[
+            lambda: ((1, 1, 1), (1, 1, 1))
+        ](tensor, out)
+        torch.cuda.synchronize(self.device)
+
+        self.assertEqual(out.item(), 7)
 
 
 if __name__ == "__main__":
