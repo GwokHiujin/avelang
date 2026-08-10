@@ -1562,6 +1562,19 @@ def setmaxnreg_test():
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMElectSync) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def elect_sync_test(dst: S.Tensor((1,), S.i32)):
+    dst[0] = S.convert(S.nvvm.elect_sync(), S.i32)
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMWgmmaRS) {
     static const std::string kSourceCode = R"""""(
 import avelang

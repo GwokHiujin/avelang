@@ -324,6 +324,10 @@ class NVVMIntrinsic : public NamedModule {
         mlir::NVVM::SetMaxRegisterAction action,
         llvm::StringRef name) const;
 
+    mlir::Value CreateElectSyncFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
     mlir::Value CreateFenceProxyAsyncSharedCTAFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
@@ -488,6 +492,10 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args,
         llvm::StringRef name) const;
+
+    bool CheckElectSyncFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
 
     bool CheckFenceProxyAsyncSharedCTAFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
@@ -682,6 +690,17 @@ void NVVMIntrinsic::Initialize() {
             return CheckSetMaxRegisterFunction(call_expr, gen_ctx,
                                                resolved_args,
                                                "setmaxnreg_dec");
+        });
+
+    AddFunction(
+        "elect_sync",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateElectSyncFunction(call_expr, gen_ctx, resolved_args);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckElectSyncFunction(call_expr, gen_ctx, resolved_args);
         });
 
     AddFunction(
@@ -1613,6 +1632,44 @@ bool NVVMIntrinsic::CheckSetMaxRegisterFunction(
     }
     if (*count < 24 || *count > 256 || *count % 8 != 0) {
         return report("register count must be a multiple of 8 in [24, 256]");
+    }
+    return true;
+}
+
+mlir::Value NVVMIntrinsic::CreateElectSyncFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (!CheckElectSyncFunction(call_expr, ctx, resolved_args)) {
+        return nullptr;
+    }
+
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    mlir::Value membermask;
+    if (!resolved_args.empty()) {
+        membermask = castIntegerTo(builder, location, resolved_args[0],
+                                   builder.getI32Type());
+    }
+    return mlir::NVVM::ElectSyncOp::create(builder, location,
+                                           builder.getI1Type(), membermask)
+        .getPred();
+}
+
+bool NVVMIntrinsic::CheckElectSyncFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (resolved_args.size() > 1) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "elect_sync takes at most one membermask argument";
+        return false;
+    }
+    if (!resolved_args.empty() &&
+        (!resolved_args[0] || !resolved_args[0].getType().isIntOrIndex())) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "elect_sync membermask must be an integer";
+        return false;
     }
     return true;
 }
