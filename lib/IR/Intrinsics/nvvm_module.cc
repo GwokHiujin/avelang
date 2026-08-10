@@ -342,6 +342,10 @@ class NVVMIntrinsic : public NamedModule {
         llvm::ArrayRef<mlir::Value> resolved_args,
         llvm::StringRef name) const;
 
+    mlir::Value CreateClusterBlockRankFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
     mlir::Value CreateFenceProxyAsyncSharedCTAFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
@@ -788,6 +792,19 @@ void NVVMIntrinsic::Initialize() {
                                                 resolved_args, name);
             });
     }
+
+    AddFunction(
+        "cluster_block_rank",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateClusterBlockRankFunction(call_expr, gen_ctx,
+                                                  resolved_args);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckClusterSyncFunction(call_expr, gen_ctx, resolved_args,
+                                            "cluster_block_rank");
+        });
 
     AddFunction(
         "fence_proxy_async_shared_cta",
@@ -1894,6 +1911,19 @@ bool NVVMIntrinsic::CheckClusterSyncFunction(
         return false;
     }
     return true;
+}
+
+mlir::Value NVVMIntrinsic::CreateClusterBlockRankFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (!CheckClusterSyncFunction(call_expr, ctx, resolved_args,
+                                  "cluster_block_rank")) {
+        return nullptr;
+    }
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    return mlir::NVVM::ClusterId::create(builder, builder.getUnknownLoc(),
+                                         builder.getI32Type())
+        .getRes();
 }
 
 mlir::Value NVVMIntrinsic::CreateFenceProxyAsyncSharedCTAFunction(

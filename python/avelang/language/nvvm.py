@@ -105,6 +105,10 @@ def cluster_wait():
     pass
 
 
+def cluster_block_rank():
+    pass
+
+
 def fence_proxy_async_shared_cta():
     pass
 

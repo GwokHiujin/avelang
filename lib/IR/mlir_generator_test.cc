@@ -1617,6 +1617,19 @@ def cluster_sync_test():
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMClusterBlockRank) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def cluster_rank_test(dst: S.Tensor((1,), S.i32)):
+    dst[0] = S.nvvm.cluster_block_rank()
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMWgmmaRS) {
     static const std::string kSourceCode = R"""""(
 import avelang

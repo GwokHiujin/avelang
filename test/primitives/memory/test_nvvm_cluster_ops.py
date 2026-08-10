@@ -33,6 +33,12 @@ def kernel_cluster_sync(out: S.Tensor((32,), S.i32)):
     out[tid] = S.convert(tid, S.i32)
 
 
+@avelang.jit
+def kernel_cluster_rank(out: S.Tensor((32,), S.i32)):
+    tid = S.thread_id(0)
+    out[tid] = S.nvvm.cluster_block_rank()
+
+
 @unittest.skipUnless(
     get_hopper_device() is not None,
     "Requires CUDA on an NVIDIA Hopper-or-newer GPU.",
@@ -48,6 +54,17 @@ class TestNVVMClusterOps(unittest.TestCase):
         kernel_cluster_sync[lambda: ((1, 1, 1), (32, 1, 1))](out)
 
         self.assertTrue(torch.equal(out.cpu(), torch.arange(32)))
+
+    def test_cluster_rank_single_cta_cluster(self):
+        device_idx = get_hopper_device()
+        assert device_idx is not None
+        torch.cuda.set_device(device_idx)
+        device = torch.device(f"cuda:{device_idx}")
+        out = torch.full((32,), -1, dtype=torch.int32, device=device)
+
+        kernel_cluster_rank[lambda: ((1, 1, 1), (32, 1, 1))](out)
+
+        self.assertTrue(torch.equal(out.cpu(), torch.zeros(32, dtype=torch.int32)))
 
 
 if __name__ == "__main__":
