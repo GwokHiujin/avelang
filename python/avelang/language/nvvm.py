@@ -172,6 +172,10 @@ def mbarrier_arrive(barrier, mbar_id: int):
     pass
 
 
+def mbarrier_arrive_cluster(barrier, mbar_id: int, cta_id: int):
+    pass
+
+
 def mbarrier_test_wait(barrier, token, mbar_id: int):
     pass
 
