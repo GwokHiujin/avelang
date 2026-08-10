@@ -53,6 +53,15 @@ def kernel_named_barrier(
         out[tid] = shared[tid - 32]
 
 
+@avelang.jit
+def kernel_syncwarp(out: S.Tensor((32,), S.i32), mask: S.i32):
+    tid = S.thread_id(0)
+    shared = S.make_shared((32,), S.i32)
+    shared[tid] = S.convert(tid, S.i32)
+    S.nvvm.syncwarp(mask)
+    out[tid] = shared[(tid + 1) % 32]
+
+
 @unittest.skipUnless(
     get_hopper_device() is not None,
     "Requires CUDA on an NVIDIA Hopper-or-newer GPU.",
@@ -92,6 +101,18 @@ class TestNVVMWarpOps(unittest.TestCase):
         kernel_named_barrier[lambda: ((1, 1, 1), (64, 1, 1))](out, 1, 64)
 
         expected = torch.arange(32, dtype=torch.int32).repeat(2)
+        self.assertTrue(torch.equal(out.cpu(), expected))
+
+    def test_syncwarp(self):
+        device_idx = get_hopper_device()
+        assert device_idx is not None
+        torch.cuda.set_device(device_idx)
+        device = torch.device(f"cuda:{device_idx}")
+        out = torch.zeros((32,), dtype=torch.int32, device=device)
+
+        kernel_syncwarp[lambda: ((1, 1, 1), (32, 1, 1))](out, -1)
+
+        expected = torch.roll(torch.arange(32, dtype=torch.int32), -1)
         self.assertTrue(torch.equal(out.cpu(), expected))
 
 
