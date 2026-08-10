@@ -738,6 +738,10 @@ class NVVMWGMMADescriptorLowering
             insertField(descriptor, makeConstant(leadingDimensionField), 16);
         descriptor = insertField(descriptor, baseAddressField, 0);
 
+        if (op.getResult().getType().isInteger(64)) {
+            rewriter.replaceOp(op, descriptor);
+            return mlir::success();
+        }
         auto typedDescriptor = mlir::UnrealizedConversionCastOp::create(
             rewriter, op.getLoc(), op.getResult().getType(), descriptor);
         rewriter.replaceOp(op, typedDescriptor.getResult(0));

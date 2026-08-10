@@ -160,6 +160,57 @@ def kernel_nvvm_wgmma_swizzle_128b(
         out[row, col] = c_shared[row, col]
 
 
+@avelang.jit
+def kernel_nvvm_raw_wgmma_bf16(
+    a: S.Tensor((64, 16), S.bf16),
+    b: S.Tensor((16, 64), S.bf16),
+    out: S.Tensor((128, 32), S.f32),
+):
+    tid = S.thread_id(0)
+    a_shared = S.make_shared((64, 16), S.bf16, 128)
+    b_shared = S.make_shared((16, 64), S.bf16, 128)
+
+    for i in S.range(8):
+        idx = tid + i * 128
+        row_a = idx // 16
+        col_a = idx % 16
+        swizzled_col_a = col_a
+        if (row_a // 4) % 2 == 1:
+            if col_a < 8:
+                swizzled_col_a = col_a + 8
+            else:
+                swizzled_col_a = col_a - 8
+        a_shared[row_a, swizzled_col_a] = a[row_a, col_a]
+
+        row_b = idx // 64
+        col_b = idx % 64
+        swizzled_col_b = col_b
+        if (row_b // 4) % 2 == 1:
+            if col_b % 16 < 8:
+                swizzled_col_b = col_b + 8
+            else:
+                swizzled_col_b = col_b - 8
+        b_shared[row_b, swizzled_col_b] = b[row_b, col_b]
+
+    S.syncthreads()
+    desc_a = S.nvvm.make_wgmma_descriptor_bits(
+        a_shared, WGMMA_SWIZZLE_32B, 0, 0, 0
+    )
+    desc_b = S.nvvm.make_wgmma_descriptor_bits(
+        b_shared, WGMMA_SWIZZLE_32B, 0, 0, 0
+    )
+    result = S.nvvm.wgmma_init_result(32)
+    S.nvvm.wgmma_fence_aligned()
+    result = S.nvvm.wgmma_m64n64k16_f32_bf16_bf16(
+        desc_a, desc_b, result, 0
+    )
+    S.nvvm.wgmma_group_sync_aligned()
+    S.nvvm.wgmma_wait_group_sync(0)
+
+    for i in S.range(32):
+        out[tid, i] = result[i]
+
+
 @unittest.skipUnless(
     get_wgmma_device() is not None,
     "Requires CUDA on an NVIDIA Hopper-or-newer GPU with WGMMA support.",
@@ -228,6 +279,21 @@ class TestNVVMWGMMAOps(unittest.TestCase):
                 f"Expected:\n{expected}\nActual:\n{actual}"
             ),
         )
+
+    def test_raw_wgmma_bf16_result_access(self):
+        device_idx = get_wgmma_device()
+        assert device_idx is not None
+        torch.cuda.set_device(device_idx)
+        device = torch.device(f"cuda:{device_idx}")
+        a = torch.ones((64, 16), dtype=torch.bfloat16, device=device)
+        b = torch.ones((16, 64), dtype=torch.bfloat16, device=device)
+        out = torch.zeros((128, 32), dtype=torch.float32, device=device)
+
+        kernel_nvvm_raw_wgmma_bf16[
+            lambda: ((1, 1, 1), (128, 1, 1))
+        ](a, b, out)
+
+        self.assertTrue(torch.equal(out.cpu(), torch.full((128, 32), 16.0)))
 
 
 if __name__ == "__main__":
