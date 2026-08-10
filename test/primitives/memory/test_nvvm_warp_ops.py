@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+import unittest
+
+import torch
+
+import avelang
+import avelang.language as S
+
+
+def get_hopper_device():
+    if not torch.cuda.is_available() or torch.version.cuda is None:
+        return None
+    for device_idx in range(torch.cuda.device_count()):
+        try:
+            major, _minor = torch.cuda.get_device_capability(device_idx)
+            if major < 9:
+                continue
+            torch.cuda.set_device(device_idx)
+            torch.empty(1, device=f"cuda:{device_idx}")
+            torch.cuda.synchronize(device_idx)
+            return device_idx
+        except Exception:
+            continue
+    return None
+
+
+@avelang.jit
+def kernel_setmaxnreg(out: S.Tensor((128,), S.i32)):
+    tid = S.thread_id(0)
+    S.nvvm.setmaxnreg_dec(24)
+    S.nvvm.setmaxnreg_inc(32)
+    out[tid] = S.convert(tid, S.i32)
+
+
+@unittest.skipUnless(
+    get_hopper_device() is not None,
+    "Requires CUDA on an NVIDIA Hopper-or-newer GPU.",
+)
+class TestNVVMWarpOps(unittest.TestCase):
+    def test_setmaxnreg(self):
+        device_idx = get_hopper_device()
+        assert device_idx is not None
+        torch.cuda.set_device(device_idx)
+        device = torch.device(f"cuda:{device_idx}")
+        out = torch.zeros((128,), dtype=torch.int32, device=device)
+
+        kernel_setmaxnreg[lambda: ((1, 1, 1), (128, 1, 1))](out)
+
+        expected = torch.arange(128, dtype=torch.int32)
+        self.assertTrue(torch.equal(out.cpu(), expected))
+
+
+if __name__ == "__main__":
+    unittest.main()

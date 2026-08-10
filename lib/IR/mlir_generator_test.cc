@@ -1548,6 +1548,20 @@ def raw_wgmma_test(dst: S.Tensor((32,), S.f32)):
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMSetMaxRegister) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def setmaxnreg_test():
+    S.nvvm.setmaxnreg_dec(24)
+    S.nvvm.setmaxnreg_inc(32)
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMWgmmaRS) {
     static const std::string kSourceCode = R"""""(
 import avelang

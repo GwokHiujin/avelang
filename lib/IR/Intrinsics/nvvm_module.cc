@@ -318,6 +318,12 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
+    mlir::Value CreateSetMaxRegisterFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args,
+        mlir::NVVM::SetMaxRegisterAction action,
+        llvm::StringRef name) const;
+
     mlir::Value CreateFenceProxyAsyncSharedCTAFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
@@ -477,6 +483,11 @@ class NVVMIntrinsic : public NamedModule {
     bool CheckWgmmaWaitGroupSyncFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckSetMaxRegisterFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args,
+        llvm::StringRef name) const;
 
     bool CheckFenceProxyAsyncSharedCTAFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
@@ -639,6 +650,38 @@ void NVVMIntrinsic::Initialize() {
                llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
             return CheckWgmmaWaitGroupSyncFunction(call_expr, gen_ctx,
                                                    resolved_args);
+        });
+
+    AddFunction(
+        "setmaxnreg_inc",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateSetMaxRegisterFunction(
+                call_expr, gen_ctx, resolved_args,
+                mlir::NVVM::SetMaxRegisterAction::increase,
+                "setmaxnreg_inc");
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckSetMaxRegisterFunction(call_expr, gen_ctx,
+                                               resolved_args,
+                                               "setmaxnreg_inc");
+        });
+
+    AddFunction(
+        "setmaxnreg_dec",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateSetMaxRegisterFunction(
+                call_expr, gen_ctx, resolved_args,
+                mlir::NVVM::SetMaxRegisterAction::decrease,
+                "setmaxnreg_dec");
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckSetMaxRegisterFunction(call_expr, gen_ctx,
+                                               resolved_args,
+                                               "setmaxnreg_dec");
         });
 
     AddFunction(
@@ -1530,6 +1573,47 @@ bool NVVMIntrinsic::CheckWgmmaWaitGroupSyncFunction(
         return false;
     }
 
+    return true;
+}
+
+mlir::Value NVVMIntrinsic::CreateSetMaxRegisterFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args,
+    mlir::NVVM::SetMaxRegisterAction action, llvm::StringRef name) const {
+    if (!CheckSetMaxRegisterFunction(call_expr, ctx, resolved_args, name)) {
+        return nullptr;
+    }
+
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    mlir::NVVM::SetMaxRegisterOp::create(
+        builder, location,
+        static_cast<uint32_t>(*getConstantIntValue(resolved_args[0])), action);
+    return ctx->GetCurrentFunctionGenerator()
+        ->GetExprGenerator()
+        ->CreateVoidValue();
+}
+
+bool NVVMIntrinsic::CheckSetMaxRegisterFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args, llvm::StringRef name) const {
+    auto report = [&](llvm::StringRef message) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << name << " " << message;
+        return false;
+    };
+    if (resolved_args.size() != 1 || !resolved_args[0] ||
+        !resolved_args[0].getType().isIntOrIndex()) {
+        return report("requires one constant integer register count");
+    }
+    auto count = getConstantIntValue(resolved_args[0]);
+    if (!count) {
+        return report("register count must be a constant integer");
+    }
+    if (*count < 24 || *count > 256 || *count % 8 != 0) {
+        return report("register count must be a multiple of 8 in [24, 256]");
+    }
     return true;
 }
 
