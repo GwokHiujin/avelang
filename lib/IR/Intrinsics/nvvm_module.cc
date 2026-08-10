@@ -333,6 +333,10 @@ class NVVMIntrinsic : public NamedModule {
         llvm::ArrayRef<mlir::Value> resolved_args,
         bool arrive) const;
 
+    mlir::Value CreateSyncWarpFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
     mlir::Value CreateFenceProxyAsyncSharedCTAFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
@@ -506,6 +510,10 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args,
         llvm::StringRef name) const;
+
+    bool CheckSyncWarpFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
 
     bool CheckFenceProxyAsyncSharedCTAFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
@@ -741,6 +749,17 @@ void NVVMIntrinsic::Initialize() {
             return CheckNamedBarrierFunction(call_expr, gen_ctx,
                                              resolved_args,
                                              "named_barrier_arrive");
+        });
+
+    AddFunction(
+        "syncwarp",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateSyncWarpFunction(call_expr, gen_ctx, resolved_args);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckSyncWarpFunction(call_expr, gen_ctx, resolved_args);
         });
 
     AddFunction(
@@ -1763,6 +1782,54 @@ bool NVVMIntrinsic::CheckNamedBarrierFunction(
     if (auto count = getConstantIntValue(resolved_args[1]);
         count && (*count <= 0 || *count % 32 != 0)) {
         return report("thread_count must be a positive multiple of 32");
+    }
+    return true;
+}
+
+mlir::Value NVVMIntrinsic::CreateSyncWarpFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (!CheckSyncWarpFunction(call_expr, ctx, resolved_args)) {
+        return nullptr;
+    }
+
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    if (resolved_args.empty()) {
+        mlir::LLVM::InlineAsmOp::create(
+            builder, location, mlir::TypeRange{}, mlir::ValueRange{},
+            "bar.warp.sync 0xffffffff;", "~{memory}",
+            /*hasSideEffects=*/true, /*isAlignStack=*/false,
+            mlir::LLVM::tailcallkind::TailCallKind::None,
+            mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+        return ctx->GetCurrentFunctionGenerator()
+            ->GetExprGenerator()
+            ->CreateVoidValue();
+    }
+    mlir::Value mask;
+    mask = castIntegerTo(builder, location, resolved_args[0],
+                         builder.getI32Type());
+    mlir::NVVM::SyncWarpOp::create(builder, location, mask);
+    return ctx->GetCurrentFunctionGenerator()
+        ->GetExprGenerator()
+        ->CreateVoidValue();
+}
+
+bool NVVMIntrinsic::CheckSyncWarpFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (resolved_args.size() > 1) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "syncwarp takes at most one mask argument";
+        return false;
+    }
+    if (!resolved_args.empty() &&
+        (!resolved_args[0] || !resolved_args[0].getType().isIntOrIndex())) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "syncwarp mask must be an integer";
+        return false;
     }
     return true;
 }

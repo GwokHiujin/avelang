@@ -89,6 +89,10 @@ def named_barrier_arrive(barrier_id: int, thread_count: int):
     pass
 
 
+def syncwarp(mask: int = 0xFFFFFFFF):
+    pass
+
+
 def fence_proxy_async_shared_cta():
     pass
 
