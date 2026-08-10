@@ -81,6 +81,14 @@ def elect_sync(membermask: int = 0xFFFFFFFF):
     pass
 
 
+def named_barrier_sync(barrier_id: int, thread_count: int):
+    pass
+
+
+def named_barrier_arrive(barrier_id: int, thread_count: int):
+    pass
+
+
 def fence_proxy_async_shared_cta():
     pass
 

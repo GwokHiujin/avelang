@@ -38,6 +38,21 @@ def kernel_elect_sync(out: S.Tensor((128,), S.i32)):
     out[tid] = S.convert(S.nvvm.elect_sync(), S.i32)
 
 
+@avelang.jit
+def kernel_named_barrier(
+    out: S.Tensor((64,), S.i32), barrier_id: S.i32, thread_count: S.i32
+):
+    tid = S.thread_id(0)
+    shared = S.make_shared((64,), S.i32)
+    shared[tid] = S.convert(tid, S.i32)
+    if tid < 32:
+        S.nvvm.named_barrier_arrive(barrier_id, thread_count)
+        out[tid] = shared[tid]
+    else:
+        S.nvvm.named_barrier_sync(barrier_id, thread_count)
+        out[tid] = shared[tid - 32]
+
+
 @unittest.skipUnless(
     get_hopper_device() is not None,
     "Requires CUDA on an NVIDIA Hopper-or-newer GPU.",
@@ -66,6 +81,18 @@ class TestNVVMWarpOps(unittest.TestCase):
 
         leaders_per_warp = (out.cpu().reshape(4, 32) != 0).sum(dim=1)
         self.assertTrue(torch.equal(leaders_per_warp, torch.ones(4)))
+
+    def test_named_barrier_arrive_and_sync(self):
+        device_idx = get_hopper_device()
+        assert device_idx is not None
+        torch.cuda.set_device(device_idx)
+        device = torch.device(f"cuda:{device_idx}")
+        out = torch.zeros((64,), dtype=torch.int32, device=device)
+
+        kernel_named_barrier[lambda: ((1, 1, 1), (64, 1, 1))](out, 1, 64)
+
+        expected = torch.arange(32, dtype=torch.int32).repeat(2)
+        self.assertTrue(torch.equal(out.cpu(), expected))
 
 
 if __name__ == "__main__":
