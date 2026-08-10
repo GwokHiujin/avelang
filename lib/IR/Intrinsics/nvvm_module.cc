@@ -337,6 +337,11 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
+    mlir::Value CreateClusterSyncFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args,
+        llvm::StringRef name) const;
+
     mlir::Value CreateFenceProxyAsyncSharedCTAFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
@@ -514,6 +519,11 @@ class NVVMIntrinsic : public NamedModule {
     bool CheckSyncWarpFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckClusterSyncFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args,
+        llvm::StringRef name) const;
 
     bool CheckFenceProxyAsyncSharedCTAFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
@@ -761,6 +771,23 @@ void NVVMIntrinsic::Initialize() {
                llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
             return CheckSyncWarpFunction(call_expr, gen_ctx, resolved_args);
         });
+
+    for (llvm::StringRef name : {"fence_mbarrier_init_release_cluster",
+                                 "cluster_arrive_relaxed", "cluster_wait"}) {
+        AddFunction(
+            name.str(),
+            [this, name](ast::Call *call_expr, GeneratorContext *gen_ctx,
+                         llvm::ArrayRef<mlir::Value> resolved_args)
+                -> mlir::Value {
+                return CreateClusterSyncFunction(call_expr, gen_ctx,
+                                                 resolved_args, name);
+            },
+            [this, name](ast::Call *call_expr, GeneratorContext *gen_ctx,
+                         llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+                return CheckClusterSyncFunction(call_expr, gen_ctx,
+                                                resolved_args, name);
+            });
+    }
 
     AddFunction(
         "fence_proxy_async_shared_cta",
@@ -1829,6 +1856,41 @@ bool NVVMIntrinsic::CheckSyncWarpFunction(
         ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
                                         call_expr->GetSourceRange().getBegin())
             << "syncwarp mask must be an integer";
+        return false;
+    }
+    return true;
+}
+
+mlir::Value NVVMIntrinsic::CreateClusterSyncFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args, llvm::StringRef name) const {
+    if (!CheckClusterSyncFunction(call_expr, ctx, resolved_args, name)) {
+        return nullptr;
+    }
+
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    if (name == "fence_mbarrier_init_release_cluster") {
+        mlir::NVVM::FenceMbarrierInitOp::create(builder, location);
+    } else if (name == "cluster_arrive_relaxed") {
+        mlir::NVVM::ClusterArriveRelaxedOp::create(
+            builder, location, builder.getUnitAttr());
+    } else {
+        mlir::NVVM::ClusterWaitOp::create(builder, location,
+                                          builder.getUnitAttr());
+    }
+    return ctx->GetCurrentFunctionGenerator()
+        ->GetExprGenerator()
+        ->CreateVoidValue();
+}
+
+bool NVVMIntrinsic::CheckClusterSyncFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args, llvm::StringRef name) const {
+    if (!resolved_args.empty()) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << name << " requires no arguments";
         return false;
     }
     return true;

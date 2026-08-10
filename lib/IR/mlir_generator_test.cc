@@ -1602,6 +1602,21 @@ def syncwarp_test(mask: S.i32):
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMClusterSync) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def cluster_sync_test():
+    S.nvvm.fence_mbarrier_init_release_cluster()
+    S.nvvm.cluster_arrive_relaxed()
+    S.nvvm.cluster_wait()
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMWgmmaRS) {
     static const std::string kSourceCode = R"""""(
 import avelang

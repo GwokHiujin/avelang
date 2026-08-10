@@ -93,6 +93,18 @@ def syncwarp(mask: int = 0xFFFFFFFF):
     pass
 
 
+def fence_mbarrier_init_release_cluster():
+    pass
+
+
+def cluster_arrive_relaxed():
+    pass
+
+
+def cluster_wait():
+    pass
+
+
 def fence_proxy_async_shared_cta():
     pass
 
