@@ -69,6 +69,14 @@ def wgmma_wait_group_sync(group: int):
     pass
 
 
+def setmaxnreg_inc(register_count: int):
+    pass
+
+
+def setmaxnreg_dec(register_count: int):
+    pass
+
+
 def fence_proxy_async_shared_cta():
     pass
 
