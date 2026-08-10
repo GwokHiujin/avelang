@@ -268,6 +268,10 @@ def tma_fence(desc):
     pass
 
 
+def tma_prefetch_descriptor(desc):
+    pass
+
+
 def tma_load(
     dst, desc, coords, barrier, mbar_id=0, predicate=True,
     multicast_mask=None

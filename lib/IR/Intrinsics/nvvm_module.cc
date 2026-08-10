@@ -392,6 +392,10 @@ class NVVMIntrinsic : public NamedModule {
     CreateTMAFenceFunction(ast::Call *call_expr, GeneratorContext *ctx,
                            llvm::ArrayRef<mlir::Value> resolved_args) const;
 
+    mlir::Value CreateTMAPrefetchDescriptorFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
     mlir::Value
     CreateTMALoadFunction(ast::Call *call_expr, GeneratorContext *ctx,
                           llvm::ArrayRef<mlir::Value> resolved_args) const;
@@ -607,6 +611,10 @@ class NVVMIntrinsic : public NamedModule {
 
     bool CheckTMAFenceFunction(ast::Call *call_expr, GeneratorContext *ctx,
                                llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckTMAPrefetchDescriptorFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
 
     bool CheckTMALoadFunction(ast::Call *call_expr, GeneratorContext *ctx,
                               llvm::ArrayRef<mlir::Value> resolved_args) const;
@@ -1131,6 +1139,19 @@ void NVVMIntrinsic::Initialize() {
         [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
                llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
             return CheckTMAFenceFunction(call_expr, gen_ctx, resolved_args);
+        });
+
+    AddFunction(
+        "tma_prefetch_descriptor",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateTMAPrefetchDescriptorFunction(call_expr, gen_ctx,
+                                                       resolved_args);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckTMAPrefetchDescriptorFunction(call_expr, gen_ctx,
+                                                      resolved_args);
         });
 
     AddFunction(
@@ -4041,6 +4062,48 @@ bool NVVMIntrinsic::CheckTMAFenceFunction(
         ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
                                         call_expr->GetSourceRange().getBegin())
             << "tma_fence desc operand must be a TMA descriptor";
+        return false;
+    }
+
+    return true;
+}
+
+mlir::Value NVVMIntrinsic::CreateTMAPrefetchDescriptorFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+
+    if (!CheckTMAPrefetchDescriptorFunction(call_expr, ctx, resolved_args)) {
+        return nullptr;
+    }
+
+    auto descriptor =
+        createDescriptorPointer(builder, location, resolved_args[0]);
+    mlir::NVVM::PrefetchOp::create(
+        builder, location, mlir::NVVM::PrefetchCacheLevelAttr{},
+        mlir::NVVM::CacheEvictionPriorityAttr{}, descriptor, mlir::Value(),
+        /*tensormap=*/true);
+    return ctx->GetCurrentFunctionGenerator()
+        ->GetExprGenerator()
+        ->CreateVoidValue();
+}
+
+bool NVVMIntrinsic::CheckTMAPrefetchDescriptorFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (resolved_args.size() != 1 || !resolved_args[0]) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "tma_prefetch_descriptor requires exactly 1 argument: desc";
+        return false;
+    }
+
+    if (!mlir::isa<mlir::nvgpu::TensorMapDescriptorType>(
+            resolved_args[0].getType())) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "tma_prefetch_descriptor desc operand must be a TMA descriptor";
         return false;
     }
 

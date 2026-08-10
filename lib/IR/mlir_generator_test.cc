@@ -1457,6 +1457,21 @@ def tma_fence_test(global_mem: S.Tensor((16, 16), S.f32)):
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMTmaPrefetchDescriptor) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def tma_prefetch_descriptor_test(global_mem: S.Tensor((16, 16), S.f32)):
+    smem_layout = S.make_layout((16, 16), (16, 1))
+    desc = S.nvvm.make_tma_descriptor(global_mem, smem_layout)
+    S.nvvm.tma_prefetch_descriptor(desc)
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMAsyncProxyFence) {
     static const std::string kSourceCode = R"""""(
 import avelang
