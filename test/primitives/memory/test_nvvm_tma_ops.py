@@ -76,6 +76,22 @@ def kernel_tma_store_tiles(out: S.Tensor((32, 32), S.f16)):
     S.nvvm.tma_store(smem, desc, (tile_n, tile_m), predicate=tid == 0)
 
 
+@avelang.jit
+def kernel_runtime_mbarrier(
+    out: S.Tensor((64,), S.i32), phase: S.i32
+):
+    tid = S.thread_id(0)
+    stage = S.block_id(0)
+    barrier = S.nvvm.mbarrier_create(2)
+
+    S.nvvm.mbarrier_init(barrier, stage, count=32, predicate=tid == 0)
+    token = S.nvvm.mbarrier_arrive(barrier, stage)
+    ready = S.nvvm.mbarrier_test_wait(barrier, token, stage)
+    S.nvvm.mbarrier_try_wait_parity(barrier, phase, 10000000, stage)
+
+    out[stage * 32 + tid] = tid + S.convert(ready, S.i32) * 0
+
+
 @unittest.skipUnless(
     get_tma_device() is not None,
     "Requires CUDA on an NVIDIA Hopper-or-newer GPU with TMA support.",
@@ -128,6 +144,16 @@ class TestNVVMTMAOps(unittest.TestCase):
                 f"Expected:\n{expected}\nActual:\n{actual}"
             ),
         )
+
+    def test_runtime_mbarrier_phase_and_id(self):
+        out = torch.zeros((64,), dtype=torch.int32, device=self.device)
+        expected = torch.arange(32, dtype=torch.int32, device=self.device)
+        expected = expected.repeat(2)
+
+        kernel_runtime_mbarrier[lambda: ((2, 1, 1), (32, 1, 1))](out, 0)
+        torch.cuda.synchronize(self.device)
+
+        self.assertTrue(torch.equal(out, expected))
 
 
 if __name__ == "__main__":

@@ -92,7 +92,7 @@ def wgmma_store(acc, dst):
     pass
 
 
-def mbarrier_create():
+def mbarrier_create(num_barriers: int = 1):
     pass
 
 

@@ -1532,13 +1532,13 @@ import avelang
 import avelang.language as S
 
 @avelang.jit
-def mbarrier_test():
-    barrier = S.nvvm.mbarrier_create()
-    S.nvvm.mbarrier_init(barrier, 0, 1, 1)
-    S.nvvm.mbarrier_try_wait_parity(barrier, 0, 100, 0)
-    token = S.nvvm.mbarrier_arrive(barrier, 0)
-    ready = S.nvvm.mbarrier_test_wait(barrier, token, 0)
-    S.nvvm.mbarrier_arrive_expect_tx(barrier, 16, 0, 1)
+def mbarrier_test(phase: S.i32, mbar_id: S.i32):
+    barrier = S.nvvm.mbarrier_create(2)
+    S.nvvm.mbarrier_init(barrier, mbar_id, 1, 1)
+    S.nvvm.mbarrier_try_wait_parity(barrier, phase, 100, mbar_id)
+    token = S.nvvm.mbarrier_arrive(barrier, mbar_id)
+    ready = S.nvvm.mbarrier_test_wait(barrier, token, mbar_id)
+    S.nvvm.mbarrier_arrive_expect_tx(barrier, 16, mbar_id, 1)
 )""""";
 
     RunMLIRGenerationTest(kSourceCode);
