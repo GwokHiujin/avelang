@@ -40,6 +40,13 @@ def kernel_cluster_rank(out: S.Tensor((32,), S.i32)):
 
 
 @avelang.jit
+def kernel_griddepcontrol_wait(out: S.Tensor((32,), S.i32)):
+    tid = S.thread_id(0)
+    S.nvvm.griddepcontrol_wait()
+    out[tid] = S.convert(tid, S.i32)
+
+
+@avelang.jit
 def kernel_mbarrier_arrive_cluster(out: S.Tensor((32,), S.i32)):
     tid = S.thread_id(0)
     barrier = S.nvvm.mbarrier_create()
@@ -76,6 +83,19 @@ class TestNVVMClusterOps(unittest.TestCase):
         kernel_cluster_rank[lambda: ((1, 1, 1), (32, 1, 1))](out)
 
         self.assertTrue(torch.equal(out.cpu(), torch.zeros(32, dtype=torch.int32)))
+
+    def test_griddepcontrol_wait(self):
+        device_idx = get_hopper_device()
+        assert device_idx is not None
+        torch.cuda.set_device(device_idx)
+        device = torch.device(f"cuda:{device_idx}")
+        out = torch.full((32,), -1, dtype=torch.int32, device=device)
+
+        kernel_griddepcontrol_wait[
+            lambda: ((1, 1, 1), (32, 1, 1))
+        ](out)
+
+        self.assertTrue(torch.equal(out.cpu(), torch.arange(32)))
 
     def test_mbarrier_arrive_cluster_local_rank(self):
         device_idx = get_hopper_device()

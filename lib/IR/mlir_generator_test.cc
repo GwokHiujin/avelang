@@ -1645,6 +1645,19 @@ def cluster_rank_test(dst: S.Tensor((1,), S.i32)):
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMGriddepcontrolWait) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def griddepcontrol_wait_test():
+    S.nvvm.griddepcontrol_wait()
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMMBarrierArriveCluster) {
     static const std::string kSourceCode = R"""""(
 import avelang
