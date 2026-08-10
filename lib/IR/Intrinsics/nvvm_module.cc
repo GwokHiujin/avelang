@@ -318,6 +318,10 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
+    mlir::Value CreateFenceProxyAsyncSharedCTAFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
     mlir::Value CreateMakeWGMMADescriptorFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
@@ -437,6 +441,10 @@ class NVVMIntrinsic : public NamedModule {
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
     bool CheckWgmmaWaitGroupSyncFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckFenceProxyAsyncSharedCTAFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
@@ -593,6 +601,19 @@ void NVVMIntrinsic::Initialize() {
                llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
             return CheckWgmmaWaitGroupSyncFunction(call_expr, gen_ctx,
                                                    resolved_args);
+        });
+
+    AddFunction(
+        "fence_proxy_async_shared_cta",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateFenceProxyAsyncSharedCTAFunction(
+                call_expr, gen_ctx, resolved_args);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckFenceProxyAsyncSharedCTAFunction(
+                call_expr, gen_ctx, resolved_args);
         });
 
     AddFunction(
@@ -1391,6 +1412,30 @@ bool NVVMIntrinsic::CheckWgmmaWaitGroupSyncFunction(
         return false;
     }
 
+    return true;
+}
+
+mlir::Value NVVMIntrinsic::CreateFenceProxyAsyncSharedCTAFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+
+    emitInlinePtxVoid(builder, location, "fence.proxy.async.shared::cta;");
+    return ctx->GetCurrentFunctionGenerator()
+        ->GetExprGenerator()
+        ->CreateVoidValue();
+}
+
+bool NVVMIntrinsic::CheckFenceProxyAsyncSharedCTAFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (!resolved_args.empty()) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "fence_proxy_async_shared_cta requires no arguments";
+        return false;
+    }
     return true;
 }
 

@@ -1457,6 +1457,19 @@ def tma_fence_test(global_mem: S.Tensor((16, 16), S.f32)):
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMAsyncProxyFence) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def async_proxy_fence_test():
+    S.nvvm.fence_proxy_async_shared_cta()
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMTmaLoad) {
     static const std::string kSourceCode = R"""""(
 import avelang
