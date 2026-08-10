@@ -1709,6 +1709,22 @@ def wgmma_fp8_test(dst: S.Tensor((96,), S.f32)):
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMFP8Conversions) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def fp8_conversion_test(src: S.Tensor((2,), S.f32),
+                        scalar: S.Tensor((1,), S.u8),
+                        packed: S.Tensor((1,), S.u16)):
+    scalar[0] = S.nvvm.float_to_fp8(src[0])
+    packed[0] = S.nvvm.floatx2_to_fp8x2(src[0], src[1])
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMMBarrier) {
     static const std::string kSourceCode = R"""""(
 import avelang

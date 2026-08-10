@@ -4,6 +4,7 @@
 #include "IR/generator_context.h"
 #include "IR/mlir_generator_impl.h"
 #include "IR/named_module.h"
+#include "IR/type_system.h"
 #include "Utils/assert.h"
 #include "Utils/embedded_filesystem_view.h"
 #include "intrinsic_support.h"
@@ -379,6 +380,10 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
+    mlir::Value CreateFloatToFP8Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args, bool packed) const;
+
     bool CheckWgmmaM64N128K16F32BF16BF16RSFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
@@ -387,6 +392,10 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args, int64_t accumulatorSize,
         llvm::StringRef name) const;
+
+    bool CheckFloatToFP8Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args, bool packed) const;
 
     mlir::Value CreateMakeTMADescriptorFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
@@ -931,6 +940,24 @@ void NVVMIntrinsic::Initialize() {
                 call_expr, gen_ctx, resolved_args, 96,
                 "wgmma_m64n192k32_f32_e4m3_e4m3");
         });
+
+    for (auto [name, packed] :
+         {std::pair{"float_to_fp8", false},
+          std::pair{"floatx2_to_fp8x2", true}}) {
+        AddFunction(
+            name,
+            [this, packed](ast::Call *call_expr, GeneratorContext *gen_ctx,
+                           llvm::ArrayRef<mlir::Value> resolved_args)
+                -> mlir::Value {
+                return CreateFloatToFP8Function(call_expr, gen_ctx,
+                                                resolved_args, packed);
+            },
+            [this, packed](ast::Call *call_expr, GeneratorContext *gen_ctx,
+                           llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+                return CheckFloatToFP8Function(call_expr, gen_ctx,
+                                               resolved_args, packed);
+            });
+    }
 
     AddFunction(
         "wgmma_async",
@@ -2424,6 +2451,61 @@ mlir::Value NVVMIntrinsic::CreateWgmmaM64N192K32F32E4M3E4M3Function(
             builder, location, element, resultVector, i);
     }
     return resultVector;
+}
+
+mlir::Value NVVMIntrinsic::CreateFloatToFP8Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args, bool packed) const {
+    if (!CheckFloatToFP8Function(call_expr, ctx, resolved_args, packed)) {
+        return nullptr;
+    }
+
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    auto high =
+        packed
+            ? resolved_args[1]
+            : mlir::arith::ConstantFloatOp::create(
+                  builder, location, builder.getF32Type(), llvm::APFloat(0.0f))
+                  .getResult();
+    auto converted = mlir::NVVM::ConvertF32x2ToF8x2Op::create(
+        builder, location, builder.getI16Type(), high, resolved_args[0],
+        mlir::NVVM::FPRoundingMode::RN,
+        mlir::NVVM::SaturationMode::SATFINITE,
+        /*relu=*/false, mlir::Float8E4M3FNType::get(builder.getContext()));
+
+    mlir::Value result = converted.getResult();
+    if (!packed) {
+        result = mlir::arith::TruncIOp::create(builder, location,
+                                               builder.getI8Type(), result);
+    }
+    SetTypeInfo(result, TypeInfo{true});
+    return result;
+}
+
+bool NVVMIntrinsic::CheckFloatToFP8Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args, bool packed) const {
+    llvm::StringRef name =
+        packed ? "floatx2_to_fp8x2" : "float_to_fp8";
+    size_t expected = packed ? 2 : 1;
+    if (resolved_args.size() != expected) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << name << " requires exactly " << expected << " f32 argument"
+            << (packed ? "s" : "");
+        return false;
+    }
+    for (auto value : resolved_args) {
+        if (!value || !value.getType().isF32()) {
+            ctx->diagnostic_manager->Report(
+                basic::DiagnosticCode::kUnimplemented,
+                call_expr->GetSourceRange().getBegin())
+                << name << " operands must be f32";
+            return false;
+        }
+    }
+    return true;
 }
 
 mlir::Value NVVMIntrinsic::CreateWgmmaAsyncFunction(

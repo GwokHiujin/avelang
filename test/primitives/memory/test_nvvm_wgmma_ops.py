@@ -287,6 +287,21 @@ def kernel_nvvm_wgmma_fp8(
         out[tid, i] = result[i]
 
 
+@avelang.jit
+def kernel_nvvm_fp8_conversions(
+    src: S.Tensor((10,), S.f32),
+    scalar: S.Tensor((10,), S.u8),
+    packed: S.Tensor((5,), S.u16),
+):
+    tid = S.thread_id(0)
+    index = tid * 2
+    scalar[index] = S.nvvm.float_to_fp8(src[index])
+    scalar[index + 1] = S.nvvm.float_to_fp8(src[index + 1])
+    packed[tid] = S.nvvm.floatx2_to_fp8x2(
+        src[index], src[index + 1]
+    )
+
+
 @unittest.skipUnless(
     get_wgmma_device() is not None,
     "Requires CUDA on an NVIDIA Hopper-or-newer GPU with WGMMA support.",
@@ -405,6 +420,45 @@ class TestNVVMWGMMAOps(unittest.TestCase):
 
         # One scale_D=0 operation followed by scale_D=1 accumulates 32 twice.
         self.assertTrue(torch.equal(out.cpu(), torch.full((128, 96), 64.0)))
+
+    def test_fp8_conversions(self):
+        device_idx = get_wgmma_device()
+        assert device_idx is not None
+        torch.cuda.set_device(device_idx)
+        device = torch.device(f"cuda:{device_idx}")
+        src = torch.tensor(
+            [
+                0.0,
+                1.0,
+                -1.0,
+                0.1,
+                447.0,
+                448.0,
+                449.0,
+                1000.0,
+                1.0625,
+                1.1875,
+            ],
+            dtype=torch.float32,
+            device=device,
+        )
+        scalar = torch.zeros((10,), dtype=torch.uint8, device=device)
+        packed = torch.zeros((5,), dtype=torch.uint16, device=device)
+
+        kernel_nvvm_fp8_conversions[
+            lambda: ((1, 1, 1), (5, 1, 1))
+        ](src, scalar, packed)
+
+        expected_scalar = torch.tensor(
+            [0, 56, 184, 29, 126, 126, 126, 126, 56, 58],
+            dtype=torch.uint8,
+        )
+        expected_packed = (
+            expected_scalar[0::2].to(torch.int32)
+            | (expected_scalar[1::2].to(torch.int32) << 8)
+        ).to(torch.uint16)
+        self.assertTrue(torch.equal(scalar.cpu(), expected_scalar))
+        self.assertTrue(torch.equal(packed.cpu(), expected_packed))
 
 
 if __name__ == "__main__":
