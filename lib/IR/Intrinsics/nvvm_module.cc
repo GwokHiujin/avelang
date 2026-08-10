@@ -339,6 +339,14 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
+    mlir::Value CreateWgmmaM64N128K16F32BF16BF16RSFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckWgmmaM64N128K16F32BF16BF16RSFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
     bool CheckRawWgmmaFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args, int64_t accumulatorSize,
@@ -693,6 +701,19 @@ void NVVMIntrinsic::Initialize() {
             return CheckRawWgmmaFunction(
                 call_expr, gen_ctx, resolved_args, 32,
                 "wgmma_m64n64k16_f32_bf16_bf16");
+        });
+
+    AddFunction(
+        "wgmma_m64n128k16_f32_bf16_bf16_rs",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateWgmmaM64N128K16F32BF16BF16RSFunction(
+                call_expr, gen_ctx, resolved_args);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckWgmmaM64N128K16F32BF16BF16RSFunction(
+                call_expr, gen_ctx, resolved_args);
         });
 
     AddFunction(
@@ -1745,6 +1766,118 @@ mlir::Value NVVMIntrinsic::CreateWgmmaM64N64K16F32BF16BF16Function(
     for (int64_t i = 0; i < kAccumulatorSize; ++i) {
         auto element = mlir::LLVM::ExtractValueOp::create(
             builder, location, builder.getF32Type(), result,
+            llvm::ArrayRef<int64_t>{i});
+        resultVector = mlir::vector::InsertOp::create(
+            builder, location, element, resultVector, i);
+    }
+    return resultVector;
+}
+
+bool NVVMIntrinsic::CheckWgmmaM64N128K16F32BF16BF16RSFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    constexpr llvm::StringLiteral kName =
+        "wgmma_m64n128k16_f32_bf16_bf16_rs";
+    auto report = [&](llvm::StringRef message) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << kName << " " << message;
+        return false;
+    };
+    if (resolved_args.size() != 4) {
+        return report("requires A registers, desc_b, accumulator, and scale_d");
+    }
+    if (!resolved_args[0] || !resolved_args[1] || !resolved_args[2] ||
+        !resolved_args[3]) {
+        return report("received an invalid operand");
+    }
+    auto aType = mlir::dyn_cast<mlir::VectorType>(resolved_args[0].getType());
+    if (!aType || aType.getRank() != 1 || aType.getNumElements() != 4 ||
+        !aType.getElementType().isInteger(32)) {
+        return report("A must be vector<4xi32> containing packed BF16 values");
+    }
+    if (!resolved_args[1].getType().isInteger(64)) {
+        return report("desc_b must be i64 descriptor bits");
+    }
+    auto accType =
+        mlir::dyn_cast<mlir::VectorType>(resolved_args[2].getType());
+    if (!accType || accType.getRank() != 1 ||
+        accType.getNumElements() != 64 ||
+        !accType.getElementType().isF32()) {
+        return report("accumulator must be vector<64xf32>");
+    }
+    auto scaleD = getConstantIntValue(resolved_args[3]);
+    if (!scaleD || (*scaleD != 0 && *scaleD != 1)) {
+        return report("scale_d must be the constant integer 0 or 1");
+    }
+    return true;
+}
+
+mlir::Value NVVMIntrinsic::CreateWgmmaM64N128K16F32BF16BF16RSFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (!CheckWgmmaM64N128K16F32BF16BF16RSFunction(call_expr, ctx,
+                                                    resolved_args)) {
+        return nullptr;
+    }
+
+    constexpr int64_t kAccumulatorSize = 64;
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    llvm::SmallVector<mlir::Type> elementTypes(kAccumulatorSize,
+                                               builder.getF32Type());
+    auto structType = mlir::LLVM::LLVMStructType::getLiteral(
+        builder.getContext(), elementTypes);
+
+    llvm::SmallVector<mlir::Value> operands;
+    for (int64_t i = 0; i < 4; ++i) {
+        operands.push_back(mlir::vector::ExtractOp::create(
+            builder, location, resolved_args[0], i));
+    }
+    operands.push_back(resolved_args[1]);
+
+    llvm::SmallVector<std::string> constraints(kAccumulatorSize, "=f");
+    constraints.insert(constraints.end(), 4, "r");
+    constraints.push_back("l");
+    bool accumulate = *getConstantIntValue(resolved_args[3]) == 1;
+    if (accumulate) {
+        for (int64_t i = 0; i < kAccumulatorSize; ++i) {
+            operands.push_back(mlir::vector::ExtractOp::create(
+                builder, location, resolved_args[2], i));
+            constraints.push_back(std::to_string(i));
+        }
+    }
+
+    std::string asmString =
+        "wgmma.mma_async.sync.aligned.m64n128k16.f32.bf16.bf16 {";
+    for (int64_t i = 0; i < kAccumulatorSize; ++i) {
+        if (i != 0)
+            asmString += ", ";
+        asmString += "$" + std::to_string(i);
+    }
+    asmString += "}, {$64, $65, $66, $67}, $68, ";
+    asmString += accumulate ? "1, 1, 1, 1;" : "0, 1, 1, 1;";
+
+    std::string constraintString;
+    for (size_t i = 0; i < constraints.size(); ++i) {
+        if (i != 0)
+            constraintString += ",";
+        constraintString += constraints[i];
+    }
+    auto inlineAsm = mlir::LLVM::InlineAsmOp::create(
+        builder, location, structType, operands, asmString, constraintString,
+        /*hasSideEffects=*/true, /*isAlignStack=*/false,
+        mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+
+    auto resultType = mlir::cast<mlir::VectorType>(resolved_args[2].getType());
+    auto zero = mlir::arith::ConstantFloatOp::create(
+        builder, location, builder.getF32Type(), llvm::APFloat(0.0f));
+    mlir::Value resultVector = mlir::vector::BroadcastOp::create(
+        builder, location, resultType, zero);
+    for (int64_t i = 0; i < kAccumulatorSize; ++i) {
+        auto element = mlir::LLVM::ExtractValueOp::create(
+            builder, location, builder.getF32Type(), inlineAsm.getRes(),
             llvm::ArrayRef<int64_t>{i});
         resultVector = mlir::vector::InsertOp::create(
             builder, location, element, resultVector, i);

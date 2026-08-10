@@ -211,6 +211,41 @@ def kernel_nvvm_raw_wgmma_bf16(
         out[tid, i] = result[i]
 
 
+@avelang.jit
+def kernel_nvvm_wgmma_bf16_rs(
+    a_regs: S.Tensor((128, 4), S.i32),
+    b: S.Tensor((16, 128), S.bf16),
+    out: S.Tensor((128, 64), S.f32),
+):
+    tid = S.thread_id(0)
+    b_shared = S.make_shared((16, 128), S.bf16, 128)
+    for i in S.range(16):
+        idx = tid + i * 128
+        row = idx // 128
+        col = idx % 128
+        swizzled_col = col
+        if (row // 4) % 2 == 1:
+            if col % 16 < 8:
+                swizzled_col = col + 8
+            else:
+                swizzled_col = col - 8
+        b_shared[row, swizzled_col] = b[row, col]
+
+    S.syncthreads()
+    desc_b = S.nvvm.make_wgmma_descriptor_bits(
+        b_shared, WGMMA_SWIZZLE_32B, 0, 0, 0
+    )
+    result = S.nvvm.wgmma_init_result(64)
+    S.nvvm.wgmma_fence_aligned()
+    result = S.nvvm.wgmma_m64n128k16_f32_bf16_bf16_rs(
+        a_regs[tid], desc_b, result, 0
+    )
+    S.nvvm.wgmma_group_sync_aligned()
+    S.nvvm.wgmma_wait_group_sync(0)
+    for i in S.range(64):
+        out[tid, i] = result[i]
+
+
 @unittest.skipUnless(
     get_wgmma_device() is not None,
     "Requires CUDA on an NVIDIA Hopper-or-newer GPU with WGMMA support.",
@@ -294,6 +329,24 @@ class TestNVVMWGMMAOps(unittest.TestCase):
         ](a, b, out)
 
         self.assertTrue(torch.equal(out.cpu(), torch.full((128, 32), 16.0)))
+
+    def test_wgmma_bf16_register_shared(self):
+        device_idx = get_wgmma_device()
+        assert device_idx is not None
+        torch.cuda.set_device(device_idx)
+        device = torch.device(f"cuda:{device_idx}")
+        packed_bf16_ones = 0x3F803F80
+        a_regs = torch.full(
+            (128, 4), packed_bf16_ones, dtype=torch.int32, device=device
+        )
+        b = torch.ones((16, 128), dtype=torch.bfloat16, device=device)
+        out = torch.zeros((128, 64), dtype=torch.float32, device=device)
+
+        kernel_nvvm_wgmma_bf16_rs[
+            lambda: ((1, 1, 1), (128, 1, 1))
+        ](a_regs, b, out)
+
+        self.assertTrue(torch.equal(out.cpu(), torch.full((128, 64), 16.0)))
 
 
 if __name__ == "__main__":
