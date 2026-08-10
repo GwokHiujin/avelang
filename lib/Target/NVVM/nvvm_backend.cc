@@ -160,7 +160,12 @@ llvm::json::Object NVVMBackend::getKernelMetadata(mlir::ModuleOp module) const {
             return;
         }
 
-        auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(tensor);
+        mlir::Value rootTensor = tensor;
+        while (auto castOp =
+                   rootTensor.getDefiningOp<ave::AveLangMemRefCastOp>()) {
+            rootTensor = castOp.getSource();
+        }
+        auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(rootTensor);
         if (!blockArg) {
             return;
         }
@@ -207,15 +212,17 @@ llvm::json::Object NVVMBackend::getKernelMetadata(mlir::ModuleOp module) const {
             globalDims.push_back(dim);
         }
 
-        llvm::SmallVector<int64_t> defaultStrides(tensorType.getRank(), 1);
-        for (int64_t i = tensorType.getRank() - 2; i >= 0; --i) {
-            defaultStrides[i] =
-                defaultStrides[i + 1] * tensorType.getDimSize(i + 1);
+        llvm::SmallVector<int64_t> tensorStrides;
+        int64_t tensorOffset = 0;
+        if (mlir::failed(
+                tensorType.getStridesAndOffset(tensorStrides, tensorOffset)) ||
+            tensorStrides.size() != static_cast<size_t>(tensorType.getRank())) {
+            return;
         }
 
         llvm::SmallVector<int64_t> globalStrides;
         for (int64_t i = tensorType.getRank() - 2; i >= 0; --i) {
-            globalStrides.push_back(defaultStrides[i] * *elementSize);
+            globalStrides.push_back(tensorStrides[i] * *elementSize);
         }
 
         llvm::SmallVector<int64_t> reversedBoxDims;

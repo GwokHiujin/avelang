@@ -62,6 +62,14 @@ def kernel_syncwarp(out: S.Tensor((32,), S.i32), mask: S.i32):
     out[tid] = shared[(tid + 1) % 32]
 
 
+@avelang.jit
+def kernel_fma(out: S.Tensor((1,), S.f32)):
+    a = S.convert(2.0, S.f32)
+    b = S.convert(3.0, S.f32)
+    c = S.convert(4.0, S.f32)
+    out[0] = S.nvvm.fma(a, b, c)
+
+
 @unittest.skipUnless(
     get_hopper_device() is not None,
     "Requires CUDA on an NVIDIA Hopper-or-newer GPU.",
@@ -114,6 +122,16 @@ class TestNVVMWarpOps(unittest.TestCase):
 
         expected = torch.roll(torch.arange(32, dtype=torch.int32), -1)
         self.assertTrue(torch.equal(out.cpu(), expected))
+
+    def test_fma(self):
+        device_idx = get_hopper_device()
+        assert device_idx is not None
+        torch.cuda.set_device(device_idx)
+        out = torch.zeros((1,), dtype=torch.float32, device=f"cuda:{device_idx}")
+
+        kernel_fma[lambda: ((1, 1, 1), (1, 1, 1))](out)
+
+        self.assertEqual(out.item(), 10.0)
 
 
 if __name__ == "__main__":
