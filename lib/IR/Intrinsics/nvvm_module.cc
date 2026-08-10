@@ -390,6 +390,10 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
+    mlir::Value CreateGlobalAtomicAddFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
     mlir::Value
     CreateCpAsyncBulkFunction(ast::Call *call_expr, GeneratorContext *ctx,
                               llvm::ArrayRef<mlir::Value> resolved_args,
@@ -497,6 +501,10 @@ class NVVMIntrinsic : public NamedModule {
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
     bool CheckCpAsyncWaitGroupFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckGlobalAtomicAddFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
@@ -862,6 +870,19 @@ void NVVMIntrinsic::Initialize() {
         [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
                llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
             return CheckTMAStoreFunction(call_expr, gen_ctx, resolved_args);
+        });
+
+    AddFunction(
+        "atomic_add",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateGlobalAtomicAddFunction(call_expr, gen_ctx,
+                                                 resolved_args);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckGlobalAtomicAddFunction(call_expr, gen_ctx,
+                                                resolved_args);
         });
 }
 
@@ -3421,6 +3442,79 @@ bool NVVMIntrinsic::CheckTMAStoreFunction(
         }
     }
 
+    return true;
+}
+
+mlir::Value NVVMIntrinsic::CreateGlobalAtomicAddFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+
+    if (!CheckGlobalAtomicAddFunction(call_expr, ctx, resolved_args)) {
+        return nullptr;
+    }
+
+    auto pointer = createPointerFromMemRef(
+        builder, location, resolved_args[2], resolved_args[0],
+        mlir::NVVM::NVVMMemorySpace::Global);
+    if (!pointer) {
+        return nullptr;
+    }
+    auto atomic = mlir::LLVM::AtomicRMWOp::create(
+        builder, location, mlir::LLVM::AtomicBinOp::add, pointer,
+        resolved_args[1], mlir::LLVM::AtomicOrdering::monotonic, "gpu");
+    return atomic.getResult();
+}
+
+bool NVVMIntrinsic::CheckGlobalAtomicAddFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (resolved_args.size() != 3) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "atomic_add requires exactly 3 arguments: byte_offset, value, "
+               "tensor";
+        return false;
+    }
+    for (auto value : resolved_args) {
+        if (!value) {
+            ctx->diagnostic_manager->Report(
+                basic::DiagnosticCode::kUnimplemented,
+                call_expr->GetSourceRange().getBegin())
+                << "Failed to generate operands for atomic_add";
+            return false;
+        }
+    }
+    if (!resolved_args[0].getType().isIntOrIndex()) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "atomic_add byte_offset must be an integer";
+        return false;
+    }
+    if (!resolved_args[1].getType().isInteger(32)) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "atomic_add currently supports only i32 values";
+        return false;
+    }
+    auto tensorType = mlir::dyn_cast<cf::MemRefType>(resolved_args[2].getType());
+    if (!tensorType || !tensorType.getElementType().isInteger(32)) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "atomic_add requires a global i32 tensor";
+        return false;
+    }
+    if (auto addressSpace =
+            mlir::dyn_cast_or_null<mlir::gpu::AddressSpaceAttr>(
+                tensorType.getMemorySpace());
+        addressSpace &&
+        addressSpace.getValue() != mlir::gpu::AddressSpace::Global) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "atomic_add requires global memory";
+        return false;
+    }
     return true;
 }
 

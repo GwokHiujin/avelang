@@ -1588,6 +1588,20 @@ def cp_async_bulk_test(global_mem: S.Tensor((16, 16), S.i32)):
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMAtomicAdd) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def atomic_add_test(value: S.i32, out: S.Tensor((1,), S.i32)):
+    old = S.nvvm.atomic_add(0, value, out)
+    out[0] = old
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRAMDGPUMFMASync) {
     static const std::string kSourceCode = R"""""(
 import avelang

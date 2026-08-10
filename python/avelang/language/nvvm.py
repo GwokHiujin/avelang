@@ -210,3 +210,7 @@ def tma_load(
 
 def tma_store(src, desc, coords, predicate=True):
     pass
+
+
+def atomic_add(byte_offset, value, tensor):
+    pass
