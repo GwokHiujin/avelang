@@ -1563,6 +1563,39 @@ def raw_wgmma_test(dst: S.Tensor((32,), S.f32)):
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMWideRawWgmma) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def wide_raw_wgmma_test(dst: S.Tensor((96,), S.f32)):
+    smem_a = S.make_shared((64, 16), S.bf16, 128)
+    smem_b = S.make_shared((16, 192), S.bf16, 128)
+    desc_a = S.nvvm.make_wgmma_descriptor_bits(smem_a, 1, 0, 0, 0)
+    desc_b = S.nvvm.make_wgmma_descriptor_bits(smem_b, 1, 0, 0, 0)
+    acc160 = S.nvvm.wgmma_init_result(80)
+    acc176 = S.nvvm.wgmma_init_result(88)
+    acc192 = S.nvvm.wgmma_init_result(96)
+    acc160 = S.nvvm.wgmma_m64n160k16_f32_bf16_bf16(
+        desc_a, desc_b, acc160, 0
+    )
+    acc176 = S.nvvm.wgmma_m64n176k16_f32_bf16_bf16(
+        desc_a, desc_b, acc176, 0
+    )
+    acc192 = S.nvvm.wgmma_m64n192k16_f32_bf16_bf16(
+        desc_a, desc_b, acc192, 0
+    )
+    grouped176 = S.nvvm.wgmma_m64n176k128_f32_bf16_bf16_ss(desc_a, desc_b)
+    grouped192 = S.nvvm.wgmma_m64n192k128_f32_bf16_bf16_ss(desc_a, desc_b)
+    dst[0] = (
+        acc160[0] + acc176[0] + acc192[0] + grouped176[0] + grouped192[0]
+    )
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMGroupedWgmma) {
     static const std::string kSourceCode = R"""""(
 import avelang
