@@ -1555,7 +1555,8 @@ mlir::Value NVVMIntrinsic::CreateLdMatrixWithShape(
         builder, location, result_type, memref_ptr,
         mlir::StringAttr::get(builder.getContext(), shape),
         mlir::IntegerAttr::get(builder.getI32Type(), num),
-        mlir::IntegerAttr::get(builder.getI32Type(), bit_width));
+        mlir::IntegerAttr::get(builder.getI32Type(), bit_width),
+        builder.getBoolAttr(transpose));
 
     return ld_matrix_op.getResult();
 }
@@ -1649,7 +1650,8 @@ mlir::Value NVVMIntrinsic::CreateStMatrixWithShape(
         builder, location, source_arg, memref_ptr,
         mlir::StringAttr::get(builder.getContext(), shape),
         mlir::IntegerAttr::get(builder.getI32Type(), num),
-        mlir::IntegerAttr::get(builder.getI32Type(), bit_width));
+        mlir::IntegerAttr::get(builder.getI32Type(), bit_width),
+        builder.getBoolAttr(transpose));
 
     return ctx->GetCurrentFunctionGenerator()
         ->GetExprGenerator()

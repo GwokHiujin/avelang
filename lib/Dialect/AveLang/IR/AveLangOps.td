@@ -214,7 +214,8 @@ def NVVMLdMatrixOp : AveLang_GPU_Op<"nvvm_ldmatrix", []> {
         AveLang_MemRef:$memref,
         StrAttr:$matrix_shape,
         I32Attr:$matrix_num,
-        I32Attr:$matrix_bit_width
+        I32Attr:$matrix_bit_width,
+        BoolAttr:$transpose
     );
     let results = (outs AnyType:$result);
 
@@ -241,7 +242,8 @@ def NVVMStMatrixOp : AveLang_GPU_Op<"nvvm_stmatrix", []> {
         AveLang_MemRef:$memref,
         StrAttr:$matrix_shape,
         I32Attr:$matrix_num,
-        I32Attr:$matrix_bit_width
+        I32Attr:$matrix_bit_width,
+        BoolAttr:$transpose
     );
     let results = (outs);
 
