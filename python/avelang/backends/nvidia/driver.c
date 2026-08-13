@@ -54,8 +54,9 @@ static PyObject *loadBinary(PyObject *self, PyObject *args) {
     Py_ssize_t data_size;
     int shared;
     int device;
-    if (!PyArg_ParseTuple(args, "ss#ii", &name, &data, &data_size, &shared,
-                          &device)) {
+    int prefer_l1;
+    if (!PyArg_ParseTuple(args, "ss#iii", &name, &data, &data_size, &shared,
+                          &device, &prefer_l1)) {
         return NULL;
     }
     CUfunction fun;
@@ -92,16 +93,11 @@ static PyObject *loadBinary(PyObject *self, PyObject *args) {
         device));
     if (shared > 49152 && shared_optin > 49152) {
         CUDA_CHECK_AND_RETURN_NULL_ALLOW_THREADS(
-            cuFuncSetCacheConfig(fun, CU_FUNC_CACHE_PREFER_SHARED));
-        int shared_total, shared_static;
-        CUDA_CHECK_AND_RETURN_NULL_ALLOW_THREADS(cuDeviceGetAttribute(
-            &shared_total,
-            CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_MULTIPROCESSOR, device));
-        CUDA_CHECK_AND_RETURN_NULL_ALLOW_THREADS(cuFuncGetAttribute(
-            &shared_static, CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES, fun));
+            cuFuncSetCacheConfig(fun, prefer_l1 ? CU_FUNC_CACHE_PREFER_L1
+                                                : CU_FUNC_CACHE_PREFER_SHARED));
         CUDA_CHECK_AND_RETURN_NULL_ALLOW_THREADS(cuFuncSetAttribute(
             fun, CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-            shared_optin - shared_static));
+            shared));
     }
     Py_END_ALLOW_THREADS;
 
