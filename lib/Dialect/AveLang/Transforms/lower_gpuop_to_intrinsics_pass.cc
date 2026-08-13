@@ -587,6 +587,9 @@ class NVVMLdMatrixLowering : public mlir::OpRewritePattern<NVVMLdMatrixOp> {
             "nvvm", [&](llvm::raw_svector_ostream &nameStream) {
                 nameStream << "ldmatrix_" << shape << "_x" << num << "_b"
                            << bitWidth;
+                if (op.getTranspose()) {
+                    nameStream << "_trans";
+                }
             });
 
         mlir::Type resultType;
@@ -651,6 +654,9 @@ class NVVMStMatrixLowering : public mlir::OpRewritePattern<NVVMStMatrixOp> {
             "nvvm", [&](llvm::raw_svector_ostream &nameStream) {
                 nameStream << "stmatrix_" << shape << "_x" << num << "_b"
                            << bitWidth;
+                if (op.getTranspose()) {
+                    nameStream << "_trans";
+                }
             });
 
         mlir::func::CallOp::create(rewriter, op.getLoc(), funcName,

@@ -1402,6 +1402,7 @@ def ldmatrix_comprehensive_test():
     result = S.nvvm.ldmatrix_m8n8_x1_b16(shared_mem)    # 1xi32 = 2xf16
     result_4 = S.make_local((4,), S.i32)
     result_4 = S.nvvm.ldmatrix_m8n8_x4_b16(shared_mem)  # 4xi32 = 8xf16
+    result_4 = S.nvvm.ldmatrix_m8n8_x4_b16_trans(shared_mem)
 )""""";
 
     RunMLIRGenerationTest(kSourceCode);
@@ -1423,6 +1424,7 @@ def stmatrix_comprehensive_test(data1: S.i32,
     S.nvvm.stmatrix_m8n8_x1_b16(shared_mem, data1)
     S.nvvm.stmatrix_m8n8_x2_b16(shared_mem, data2)
     S.nvvm.stmatrix_m8n8_x4_b16(shared_mem, data4)
+    S.nvvm.stmatrix_m8n8_x4_b16_trans(shared_mem, data4)
 )""""";
 
     RunMLIRGenerationTest(kSourceCode);
