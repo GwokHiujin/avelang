@@ -499,6 +499,10 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
+    mlir::Value CreateStoreGlobalV4U32Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
     mlir::Value
     CreateCpAsyncBulkFunction(ast::Call *call_expr, GeneratorContext *ctx,
                               llvm::ArrayRef<mlir::Value> resolved_args,
@@ -637,6 +641,10 @@ class NVVMIntrinsic : public NamedModule {
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
     bool CheckGlobalAtomicAddFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckStoreGlobalV4U32Function(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
@@ -1338,6 +1346,19 @@ void NVVMIntrinsic::Initialize() {
         [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
                llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
             return CheckTMAStoreFunction(call_expr, gen_ctx, resolved_args);
+        });
+
+    AddFunction(
+        "store_global_v4_u32",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateStoreGlobalV4U32Function(call_expr, gen_ctx,
+                                                  resolved_args);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckStoreGlobalV4U32Function(call_expr, gen_ctx,
+                                                 resolved_args);
         });
 
     AddFunction(
@@ -4945,6 +4966,59 @@ mlir::Value NVVMIntrinsic::CreateGlobalAtomicAddFunction(
         builder, location, mlir::LLVM::AtomicBinOp::add, pointer,
         resolved_args[1], mlir::LLVM::AtomicOrdering::monotonic, "gpu");
     return atomic.getResult();
+}
+
+mlir::Value NVVMIntrinsic::CreateStoreGlobalV4U32Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+
+    if (!CheckStoreGlobalV4U32Function(call_expr, ctx, resolved_args)) {
+        return nullptr;
+    }
+
+    auto pointer = createPointerFromMemRef(
+        builder, location, resolved_args[0], resolved_args[1],
+        mlir::NVVM::NVVMMemorySpace::Global);
+    llvm::SmallVector<mlir::Value> operands{pointer};
+    for (int64_t index = 0; index < 4; ++index) {
+        operands.push_back(mlir::vector::ExtractOp::create(
+            builder, location, resolved_args[2], index));
+    }
+    mlir::LLVM::InlineAsmOp::create(
+        builder, location, mlir::TypeRange{}, operands,
+        "st.global.v4.u32 [$0], {$1, $2, $3, $4};",
+        "l,r,r,r,r,~{memory}", /*hasSideEffects=*/true,
+        /*isAlignStack=*/false,
+        mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+    return ctx->GetCurrentFunctionGenerator()
+        ->GetExprGenerator()
+        ->CreateVoidValue();
+}
+
+bool NVVMIntrinsic::CheckStoreGlobalV4U32Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    bool valid = resolved_args.size() == 3 && resolved_args[0] &&
+                 isMemRefLike(resolved_args[0].getType()) &&
+                 resolved_args[1] &&
+                 resolved_args[1].getType().isIntOrIndex();
+    auto vectorType =
+        valid ? mlir::dyn_cast<mlir::VectorType>(resolved_args[2].getType())
+              : mlir::VectorType{};
+    valid = valid && vectorType && vectorType.getRank() == 1 &&
+            vectorType.getDimSize(0) == 4 &&
+            vectorType.getElementType().isInteger(32);
+    if (!valid) {
+        ctx->diagnostic_manager->Report(
+            basic::DiagnosticCode::kUnimplemented,
+            call_expr->GetSourceRange().getBegin())
+            << "store_global_v4_u32 requires a destination tensor, byte "
+               "offset, and vector<4xi32> value";
+    }
+    return valid;
 }
 
 bool NVVMIntrinsic::CheckGlobalAtomicAddFunction(

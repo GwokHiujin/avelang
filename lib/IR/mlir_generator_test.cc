@@ -1861,6 +1861,7 @@ import avelang.language as S
 def cp_async_bulk_test(global_mem: S.Tensor((16, 16), S.i32)):
     smem = S.make_shared((16, 16), S.i32)
     smem_other = S.make_shared((16, 16), S.i32)
+    smem_vec4 = S.make_shared((1, 4), S.i32)
     smem_layout = S.make_layout((16, 16), (16, 1))
     desc = S.nvvm.make_tma_descriptor(global_mem, smem_layout)
     barrier = S.nvvm.mbarrier_create()
@@ -1869,6 +1870,7 @@ def cp_async_bulk_test(global_mem: S.Tensor((16, 16), S.i32)):
     S.nvvm.cp_async_bulk_shared_cluster_global(smem, global_mem, barrier, 64)
     S.nvvm.cp_async_bulk_shared_cluster_shared_cta(smem_other, smem, barrier, 64)
     S.nvvm.cp_async_bulk_global_shared_cta(global_mem, smem, 64)
+    S.nvvm.store_global_v4_u32(global_mem, 0, smem_vec4[0])
     S.nvvm.cp_async_bulk_tensor_prefetch(desc, (0, 0))
     S.nvvm.cp_async_bulk_tensor_shared_cluster_global(smem, desc, (0, 0), barrier)
     S.nvvm.cp_async_bulk_tensor_global_shared_cta(desc, smem, (0, 0))
