@@ -798,7 +798,17 @@ class JITFunction(JITCallable, KernelInterface[T]):
         # the type and the second parameter is the 'specialization' value.
         bound_args, specialization, options = binder(*args, **kwargs)
 
-        grid, block = dims()
+        launch_dims = dims()
+        if len(launch_dims) == 2:
+            grid, block = launch_dims
+            cluster = (1, 1, 1)
+        elif len(launch_dims) == 3:
+            grid, block, cluster = launch_dims
+        else:
+            raise ValueError(
+                "Launch dimensions must be (grid, block) or "
+                "(grid, block, cluster)"
+            )
 
         options, signature, constexprs, global_constexprs, attrs = self._pack_args(
             backend, kwargs, bound_args, specialization, options
@@ -825,6 +835,9 @@ class JITFunction(JITCallable, KernelInterface[T]):
             block[0],
             block[1],
             block[2],
+            cluster[0],
+            cluster[1],
+            cluster[2],
             stream,
             kernel.function,
             *bound_args.values(),
