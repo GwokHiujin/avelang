@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
+import json
 import unittest
 
 import torch
 
 import avelang
 import avelang.language as S
+from tools import dump_assembly
 
 GLOBAL_SIZE = 16
 GLOBAL_OFFSET = S.constexpr(3)
@@ -39,7 +41,23 @@ def kernel_global_exact_float_constant(
     output_data[tid] = shared_buf[tid]
 
 
+@avelang.jit
+def kernel_global_and_parameter_constexpr(
+    output_data: S.Tensor((4,), S.i32), block_size: S.constexpr
+):
+    output_data[0] = GLOBAL_OFFSET + block_size
+
+
 class TestGlobalConstexprInjection(unittest.TestCase):
+    def test_assembly_dump_merges_global_and_parameter_constexprs(self):
+        constexprs_json = json.dumps(
+            [{"name": "block_size", "type": "i32", "value": 4}]
+        )
+        generator = dump_assembly._build_generator(
+            kernel_global_and_parameter_constexpr, constexprs_json
+        )
+        self.assertIsNotNone(generator)
+
     def test_global_constexpr_injection(self):
         input_data = torch.arange(GLOBAL_SIZE, dtype=torch.int32, device="cuda")
         output_data = torch.zeros((GLOBAL_SIZE,), dtype=torch.int32, device="cuda")

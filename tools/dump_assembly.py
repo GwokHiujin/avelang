@@ -192,6 +192,21 @@ def _build_generator(jit_fn, constexprs_json: str):
     # Auto-detect constexprs if not provided manually
     if constexprs_json == "[]":
         constexprs_json = _serialize_constexprs_from_jit_fn(jit_fn)
+    else:
+        # Explicit parameter constexprs do not replace captured globals.  The
+        # JIT path supplies both sets, so the standalone assembly dumper must
+        # merge them to compile the same specialization.
+        constexprs = json.loads(constexprs_json)
+        parameter_names = {item["name"] for item in constexprs}
+        collect_globals = getattr(jit_fn, "_collect_global_constexprs", None)
+        global_constants = (
+            collect_globals(parameter_names) if callable(collect_globals) else {}
+        )
+        for name, info in global_constants.items():
+            constexprs.append(
+                {"name": name, "type": info["type"], "value": info["value"]}
+            )
+        constexprs_json = json.dumps(constexprs)
     generator.visit_function_def(kernel_func, constexprs_json, "kernel")
     return generator
 
