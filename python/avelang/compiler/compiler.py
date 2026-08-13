@@ -43,6 +43,7 @@ class CompiledKernel:
         self.module = None
         self.function = None
         self.kernel = None
+        self.options = None
         # TODO: Get name from metadata to ensure mangling is correct
         self.name = src.fn.fn.__name__
         self._run = None
@@ -58,8 +59,11 @@ class CompiledKernel:
                 shared = int(match.group(1))
         if hasattr(self._run, "shared"):
             self._run.shared = shared
+        load_args = [self.name, self.kernel, shared, device]
+        if hasattr(self.options, "prefer_l1"):
+            load_args.append(int(bool(self.options.prefer_l1)))
         self.module, self.function, self.n_regs, self.n_spills, self.n_max_threads = (
-            driver.active.utils.load_binary(self.name, self.kernel, shared, device)
+            driver.active.utils.load_binary(*load_args)
         )
 
     @property
@@ -82,7 +86,9 @@ def compile(src: ASTSource, target=None, options=None):
     if target is None:
         target = driver.active.get_current_target()
     backend = make_backend(target)
+    options = backend.parse_options(options)
     data = backend.compile(src, target, options)
     k = CompiledKernel(src)
     k.kernel = data
+    k.options = options
     return k
