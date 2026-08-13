@@ -960,7 +960,7 @@ void NVVMIntrinsic::Initialize() {
                                          "wgmma_m64n128k16_f32_bf16_bf16");
         });
 
-    for (int64_t n : {160, 176, 192}) {
+    for (int64_t n : {96, 160, 176, 192}) {
         std::string name =
             "wgmma_m64n" + std::to_string(n) + "k16_f32_bf16_bf16";
         AddFunction(
@@ -2393,9 +2393,12 @@ bool NVVMIntrinsic::CheckRawWgmmaFunction(
         !accumulatorType.getElementType().isF32()) {
         return report("received an incompatible f32 accumulator vector");
     }
+    if (!resolved_args[3].getType().isInteger(32)) {
+        return report("scale_d must be an i32 value");
+    }
     auto scaleD = getConstantIntValue(resolved_args[3]);
-    if (!scaleD || (*scaleD != 0 && *scaleD != 1)) {
-        return report("scale_d must be the constant integer 0 or 1");
+    if (scaleD && *scaleD != 0 && *scaleD != 1) {
+        return report("constant scale_d must be 0 or 1");
     }
     return true;
 }
@@ -2420,7 +2423,9 @@ mlir::Value NVVMIntrinsic::CreateWgmmaM64NK16F32BF16BF16Function(
     llvm::SmallVector<std::string> constraints(accumulatorSize, "=f");
     constraints.push_back("l");
     constraints.push_back("l");
-    bool accumulate = *getConstantIntValue(resolved_args[3]) == 1;
+    auto scaleD = getConstantIntValue(resolved_args[3]);
+    bool dynamicScale = !scaleD;
+    bool accumulate = dynamicScale || *scaleD == 1;
     if (accumulate) {
         for (int64_t i = 0; i < accumulatorSize; ++i) {
             operands.push_back(mlir::vector::ExtractOp::create(
@@ -2428,8 +2433,18 @@ mlir::Value NVVMIntrinsic::CreateWgmmaM64NK16F32BF16BF16Function(
             constraints.push_back(std::to_string(i));
         }
     }
+    if (dynamicScale) {
+        operands.push_back(resolved_args[3]);
+        constraints.push_back("r");
+    }
 
-    std::string asmString = "wgmma.mma_async.sync.aligned.m64n" +
+    std::string asmString;
+    if (dynamicScale) {
+        asmString = "{\n.reg .pred scale_d_pred;\nsetp.ne.b32 "
+                    "scale_d_pred, $" +
+                    std::to_string(accumulatorSize * 2 + 2) + ", 0;\n";
+    }
+    asmString += "wgmma.mma_async.sync.aligned.m64n" +
                             std::to_string(n) + "k16.f32.bf16.bf16 {";
     for (int64_t i = 0; i < accumulatorSize; ++i) {
         if (i != 0)
@@ -2438,7 +2453,11 @@ mlir::Value NVVMIntrinsic::CreateWgmmaM64NK16F32BF16BF16Function(
     }
     asmString += "}, $" + std::to_string(accumulatorSize) + ", $" +
                  std::to_string(accumulatorSize + 1) + ", ";
+    if (dynamicScale) {
+        asmString += "scale_d_pred, 1, 1, 0, 0;\n}";
+    } else {
     asmString += accumulate ? "1, 1, 1, 0, 0;" : "0, 1, 1, 0, 0;";
+    }
 
     std::string constraintString;
     for (size_t i = 0; i < constraints.size(); ++i) {
