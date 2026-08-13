@@ -187,6 +187,10 @@ llvm::json::Object NVVMBackend::getKernelMetadata(mlir::ModuleOp module) const {
 
         auto argName = funcOp.getArgAttrOfType<mlir::StringAttr>(
             blockArg.getArgNumber(), "llvm.name");
+        if (!argName) {
+            argName = funcOp.getArgAttrOfType<mlir::StringAttr>(
+                blockArg.getArgNumber(), "ave.arg_name");
+        }
         auto layoutOp = op.getLayout().getDefiningOp<ave::MakeLayoutOp>();
         if (!argName || !layoutOp) {
             return;

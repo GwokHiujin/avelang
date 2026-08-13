@@ -1364,6 +1364,13 @@ mlir::Value AveLangModule::CreateMakeTensorFunction(
     mlir::Attribute memorySpaceAttr;
     if (ptrMemRefType) {
         memorySpaceAttr = ptrMemRefType.getMemorySpace();
+    } else {
+        // A raw pointer kernel argument names device-global memory.  Preserve
+        // that address space on the tensor view so users of the memref type
+        // (notably TMA descriptor ABI extraction) can materialize a valid
+        // builtin memref rather than one with a null memory-space attribute.
+        memorySpaceAttr = mlir::gpu::AddressSpaceAttr::get(
+            builder.getContext(), mlir::gpu::AddressSpace::Global);
     }
     auto resultType = createTensorMemRefType(shapeValues, elementType,
                                              memorySpaceAttr, strideValues);
