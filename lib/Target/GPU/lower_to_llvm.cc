@@ -685,6 +685,12 @@ class LowerToLLVM::Impl {
                         function.addFnAttr(
                             "nvvm.maxntid",
                             std::to_string(options.num_warps * 32) + ",1,1");
+                        // Match __launch_bounds__(threads, min_ctas). NVPTX needs
+                        // the residency hint to establish the entry register
+                        // budget before applying warp-specialized setmaxnreg.
+                        function.addFnAttr(
+                            "nvvm.minctasm",
+                            std::to_string(std::max(options.min_ctas, 1)));
                     }
                 }
             }

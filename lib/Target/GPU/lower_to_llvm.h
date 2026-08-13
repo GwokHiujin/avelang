@@ -26,6 +26,9 @@ struct GPUCompilationOptions {
     /// Number of warps (or waves) requested by the frontend. -1 means unset.
     int num_warps = -1;
 
+    /// Minimum resident CTAs per SM for NVPTX launch bounds.
+    int min_ctas = 1;
+
     /// Permit target fast-math modes. On NVPTX this includes flushing f32
     /// denormals, matching nvcc's --use_fast_math mode.
     bool fast_math = false;

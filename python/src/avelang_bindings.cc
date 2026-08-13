@@ -293,6 +293,7 @@ class AveLangMLIRGenerator {
     py::bytes CompileToBinaryBytes(const std::string &target_triple,
                                    const std::string &target_chipset,
                                    unsigned opt_level, int num_warps = -1,
+                                   int min_ctas = 1,
                                    bool fast_math = false);
 
   private:
@@ -676,7 +677,7 @@ py::bytes
 AveLangMLIRGenerator::CompileToBinaryBytes(const std::string &target_triple,
                                            const std::string &target_chipset,
                                            unsigned opt_level, int num_warps,
-                                           bool fast_math) {
+                                           int min_ctas, bool fast_math) {
     auto module = generator_.GetModule();
     ThrowIfDiagnosticsFailed(
         "Failed to lower MLIR to LLVM IR due to compiler diagnostics");
@@ -690,6 +691,7 @@ AveLangMLIRGenerator::CompileToBinaryBytes(const std::string &target_triple,
     options.chipset = target_chipset;
     options.optimization_level = opt_level;
     options.num_warps = num_warps;
+    options.min_ctas = min_ctas;
     options.fast_math = fast_math;
 
     auto backend =
@@ -759,5 +761,6 @@ PYBIND11_MODULE(_avelang_bindings, m) {
              &AveLangMLIRGenerator::CompileToBinaryBytes,
              py::arg("target_triple"), py::arg("target_chipset"),
              py::arg("opt_level"), py::arg("num_warps") = -1,
+             py::arg("min_ctas") = 1,
              py::arg("fast_math") = false);
 }
