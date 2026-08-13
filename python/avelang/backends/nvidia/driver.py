@@ -199,7 +199,7 @@ def make_launcher(constants, signature, tma_specs=None) -> str:
             raise ValueError(f"Unknown type: {ty}")
 
     # Grid and block dimensions and function
-    _BASE_ARGS_FORMAT = "iiiiiiKKi"
+    _BASE_ARGS_FORMAT = "iiiiiiiiiKKi"
 
     def _flatten_signature(sig, output):
         # Flatten tuples
@@ -334,27 +334,48 @@ def make_launcher(constants, signature, tma_specs=None) -> str:
     tma_decls = "".join(tma_decl_list)
 
     cuda_launch = f"""
-static void CudaLaunch(int grid_x, int grid_y, int grid_z, int block_x, int block_y, int block_z, CUstream stream, CUfunction func, int shared{", " + arg_decl if arg_decl else ""}) {{
+static void CudaLaunch(int grid_x, int grid_y, int grid_z, int block_x, int block_y, int block_z, int cluster_x, int cluster_y, int cluster_z, CUstream stream, CUfunction func, int shared{", " + arg_decl if arg_decl else ""}) {{
 {tma_decls}
 {params_decl}
+    if (cluster_x == 1 && cluster_y == 1 && cluster_z == 1) {{
     CUDA_CHECK(cuLaunchKernel(func, grid_x, grid_y, grid_z, block_x, block_y, block_z, shared, stream, {params_arg}, NULL));
+    }} else {{
+        CUlaunchAttribute cluster_attr{{}};
+        cluster_attr.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
+        cluster_attr.value.clusterDim.x = cluster_x;
+        cluster_attr.value.clusterDim.y = cluster_y;
+        cluster_attr.value.clusterDim.z = cluster_z;
+        CUlaunchConfig config{{}};
+        config.gridDimX = grid_x;
+        config.gridDimY = grid_y;
+        config.gridDimZ = grid_z;
+        config.blockDimX = block_x;
+        config.blockDimY = block_y;
+        config.blockDimZ = block_z;
+        config.sharedMemBytes = shared;
+        config.hStream = stream;
+        config.attrs = &cluster_attr;
+        config.numAttrs = 1;
+        CUDA_CHECK(cuLaunchKernelEx(&config, func, {params_arg}, NULL));
+    }}
 }} 
 
 static PyObject *PyLaunch(PyObject *self, PyObject *args) {{
     int grid_x, grid_y, grid_z, block_x, block_y, block_z;
+    int cluster_x, cluster_y, cluster_z;
     unsigned long long stream;
     CUfunction func;
     int shared;
     {extracted_decls}
 
     ensureCudaContext();
-    if (!PyArg_ParseTuple(args, "{format}", &grid_x, &grid_y, &grid_z, &block_x, &block_y, &block_z, &stream, &func, &shared {args_list})) {{
+    if (!PyArg_ParseTuple(args, "{format}", &grid_x, &grid_y, &grid_z, &block_x, &block_y, &block_z, &cluster_x, &cluster_y, &cluster_z, &stream, &func, &shared {args_list})) {{
         return NULL;
     }}
     {ptr_decls_text}
 
     Py_BEGIN_ALLOW_THREADS;
-    CudaLaunch(grid_x, grid_y, grid_z, block_x, block_y, block_z, (CUstream)stream, func, shared{launch_args});
+    CudaLaunch(grid_x, grid_y, grid_z, block_x, block_y, block_z, cluster_x, cluster_y, cluster_z, (CUstream)stream, func, shared{launch_args});
     Py_END_ALLOW_THREADS;
 
     if (PyErr_Occurred()) {{
@@ -397,7 +418,10 @@ class CudaLauncher:
         )
         self.launch = mod.launch
 
-    def __call__(self, gridX, gridY, gridZ, blockX, blockY, blockZ, stream, function, *args):
+    def __call__(
+        self, gridX, gridY, gridZ, blockX, blockY, blockZ,
+        clusterX, clusterY, clusterZ, stream, function, *args
+    ):
         return self.launch(
             gridX,
             gridY,
@@ -405,6 +429,9 @@ class CudaLauncher:
             blockX,
             blockY,
             blockZ,
+            clusterX,
+            clusterY,
+            clusterZ,
             stream,
             function,
             self.shared,
