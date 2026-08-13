@@ -304,11 +304,12 @@ def _dump_final_assembly(
     target_chipset: str,
     opt_level: int,
     num_warps: int = -1,
+    min_ctas: int = 1,
     fast_math: bool = False,
     symbol_name: str | None = None,
 ) -> str:
     binary = generator.compile_to_binary_bytes(
-        target_triple, target_chipset, opt_level, num_warps, fast_math
+        target_triple, target_chipset, opt_level, num_warps, min_ctas, fast_math
     )
     return _render_final_binary(binary, target_triple, symbol_name)
 
@@ -367,6 +368,12 @@ def main() -> int:
         type=int,
         default=-1,
         help="Attach the kernel's maximum warp count",
+    )
+    parser.add_argument(
+        "--min-ctas",
+        type=int,
+        default=1,
+        help="Attach the kernel's minimum resident CTAs per SM",
     )
     parser.add_argument(
         "--fast-math",
@@ -446,6 +453,7 @@ def main() -> int:
         args.target_chipset,
         args.opt_level,
         args.num_warps,
+        args.min_ctas,
         args.fast_math,
         function_name,
     )
