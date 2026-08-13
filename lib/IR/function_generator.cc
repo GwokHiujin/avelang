@@ -209,9 +209,14 @@ void FunctionGenerator::Generate(ast::FunctionDef *func) {
             }
 
             mlir::SmallVector<mlir::NamedAttribute> attrs;
-            if (!mlir::isa<mlir::ptr::PtrType>(type)) {
-                auto nameAttr =
-                    mlir::StringAttr::get(builder_.getContext(), name);
+            auto nameAttr = mlir::StringAttr::get(builder_.getContext(), name);
+            if (mlir::isa<mlir::ptr::PtrType>(type)) {
+                // llvm.name is not a legal LLVM parameter attribute on an
+                // opaque pointer.  Keep the source name in the Ave dialect so
+                // TMA descriptor ABI extraction can still find the argument.
+                attrs.push_back(
+                    builder_.getNamedAttr("ave.arg_name", nameAttr));
+            } else {
                 attrs.push_back(builder_.getNamedAttr("llvm.name", nameAttr));
             }
             argAttrs.push_back(

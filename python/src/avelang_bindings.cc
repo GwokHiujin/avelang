@@ -497,6 +497,10 @@ py::list AveLangMLIRGenerator::GetTMADescriptorSpecs() {
         auto argName = funcOp.getArgAttrOfType<mlir::StringAttr>(
             blockArg.getArgNumber(), "llvm.name");
         if (!argName) {
+            argName = funcOp.getArgAttrOfType<mlir::StringAttr>(
+                blockArg.getArgNumber(), "ave.arg_name");
+        }
+        if (!argName) {
             return;
         }
 
