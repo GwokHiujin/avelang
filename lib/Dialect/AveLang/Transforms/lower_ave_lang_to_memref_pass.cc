@@ -355,7 +355,20 @@ std::optional<BaseMemRefInfo> findBaseI8Memref(mlir::Value value,
             return std::nullopt;
         }
 
-        if (memrefType.getElementType().isInteger(8)) {
+        // Keep peeling byte-typed views/subviews so the eventual memref.view
+        // is based on an identity-layout buffer.  TMA ABI extraction can
+        // represent a pointer argument as an i8 subview with a dynamic
+        // offset; returning that subview directly is invalid as a memref.view
+        // base ("unsupported map for base memref type").
+        const bool hasTraceableByteProducer =
+            current.getDefiningOp<mlir::memref::ViewOp>() ||
+            current.getDefiningOp<mlir::memref::ReinterpretCastOp>() ||
+            current.getDefiningOp<mlir::memref::SubViewOp>() ||
+            current.getDefiningOp<AveLangMemRefSubViewOp>() ||
+            current.getDefiningOp<mlir::memref::CastOp>() ||
+            current.getDefiningOp<AveLangMemRefCastOp>();
+        if (memrefType.getElementType().isInteger(8) &&
+            !hasTraceableByteProducer) {
             return BaseMemRefInfo{current, makeZero()};
         }
 
@@ -1536,13 +1549,21 @@ mlir::LogicalResult AveLangMemRefCastLoweringPattern::matchAndRewrite(
     }
 
     if (useDirectReinterpret && needReinterpret) {
+        auto resolvedMemorySpace = resolveMemorySpace(
+            rewriter.getContext(), resultType.getMemorySpace(),
+            sourceType.getMemorySpace());
+        if (sourceType.getMemorySpace() != resolvedMemorySpace) {
+            auto castSourceType = mlir::MemRefType::get(
+                sourceType.getShape(), sourceType.getElementType(),
+                sourceType.getLayout(), resolvedMemorySpace);
+            reinterpretSource = mlir::memref::MemorySpaceCastOp::create(
+                rewriter, loc, castSourceType, reinterpretSource);
+        }
         auto stridedLayout = mlir::StridedLayoutAttr::get(rewriter.getContext(),
                                                           0, staticStrides);
         auto stridedType = mlir::MemRefType::get(
             foldedShape, resultType.getElementType(), stridedLayout,
-            resolveMemorySpace(rewriter.getContext(),
-                               resultType.getMemorySpace(),
-                               sourceType.getMemorySpace()));
+            resolvedMemorySpace);
 
         auto reinterpretOp = mlir::memref::ReinterpretCastOp::create(
             rewriter, loc, stridedType, reinterpretSource, reinterpretOffset,
@@ -1568,15 +1589,33 @@ mlir::LogicalResult AveLangMemRefCastLoweringPattern::matchAndRewrite(
         return mlir::failure();
     }
 
+    // make_tensor() on a raw kernel pointer records the target tensor as
+    // device-global memory.  Pointer argument type conversion can materialize
+    // the underlying byte buffer as a generic-space memref, however, and
+    // memref.view requires its source and result to use the same memory space.
+    // Normalize the byte base before creating the typed view so pointer-backed
+    // tensors also work for ordinary loads/stores, not only TMA descriptors.
+    auto resolvedMemorySpace = resolveMemorySpace(
+        rewriter.getContext(), resultType.getMemorySpace(),
+        baseType.getMemorySpace());
+    mlir::Value viewBase = baseInfo->base;
+    if (baseType.getMemorySpace() != resolvedMemorySpace) {
+        auto castBaseType = mlir::MemRefType::get(
+            baseType.getShape(), baseType.getElementType(),
+            baseType.getLayout(), resolvedMemorySpace);
+        viewBase = mlir::memref::MemorySpaceCastOp::create(
+            rewriter, loc, castBaseType, viewBase);
+        baseType = castBaseType;
+    }
+
     // First, create a contiguous view from the base i8 buffer to the target
     // element type.
     auto contiguousType = mlir::MemRefType::get(
         foldedShape, resultType.getElementType(),
         mlir::MemRefLayoutAttrInterface(),
-        resolveMemorySpace(rewriter.getContext(), resultType.getMemorySpace(),
-                           baseType.getMemorySpace()));
+        resolvedMemorySpace);
     auto view = mlir::memref::ViewOp::create(
-        rewriter, loc, contiguousType, baseInfo->base, baseInfo->byteShift,
+        rewriter, loc, contiguousType, viewBase, baseInfo->byteShift,
         sizeValues);
 
     if (!needReinterpret) {

@@ -1377,6 +1377,12 @@ mlir::Value AveLangModule::CreateMakeTensorFunction(
 
     auto castOp = cf::AveLangMemRefCastOp::create(builder, location, ptrValue,
                                                   layoutValue, resultType);
+    // Preserve integer signedness on pointer-backed tensors.  TMA descriptor
+    // ABI extraction uses this metadata to distinguish UINT8 storage (used by
+    // E4M3 WGMMA operands) from unsupported signed i8 tensor-map data.
+    if (auto typeInfo = GetTypeInfo(args[1]); typeInfo.is_unsigned_integer) {
+        SetTypeInfo(castOp.getResult(), typeInfo);
+    }
     return castOp.getResult();
 }
 
