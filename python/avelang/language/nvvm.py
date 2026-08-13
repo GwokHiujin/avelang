@@ -175,6 +175,18 @@ def wgmma_m64n128k128_f32_bf16_bf16_rs(a0, a1, a2, a3, a4, a5, a6, a7, desc_b, a
     pass
 
 
+def wgmma_m64n128k176_f32_bf16_bf16_rs(
+    a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, desc_b, acc
+):
+    pass
+
+
+def wgmma_m64n128k192_f32_bf16_bf16_rs(
+    a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, desc_b, acc
+):
+    pass
+
+
 def wgmma_m64n192k32_f32_e4m3_e4m3(desc_a, desc_b, acc, scale_d: int):
     pass
 
