@@ -102,6 +102,42 @@ def kernel_tma_prefetch_descriptor(
     out[0] = 7
 
 
+@avelang.jit
+def kernel_pointer_u8_tma_with_direct_pointer_load(
+    src_ptr: S.Pointer(S.u8),
+    scale_ptr: S.Pointer(S.f32),
+    out: S.Tensor((16, 16), S.f32),
+):
+    tid = S.thread_id(0)
+    row = tid // 16
+    column = tid % 16
+    src = S.make_tensor(
+        src_ptr, S.u8, S.make_layout((16, 16), (16, 1))
+    )
+    scale = S.make_tensor(
+        scale_ptr, S.f32, S.make_layout((256,), (1,))
+    )
+    shared = S.make_shared((16, 16), S.u8, 128)
+    descriptor = S.nvvm.make_tma_descriptor(
+        src, S.make_layout((16, 16), (16, 1))
+    )
+    barrier = S.nvvm.mbarrier_create()
+
+    S.nvvm.mbarrier_init(barrier, 0, count=1, predicate=tid == 0)
+    S.syncthreads()
+    S.nvvm.tma_load(
+        shared,
+        descriptor,
+        (0, 0),
+        barrier,
+        mbar_id=0,
+        predicate=tid == 0,
+    )
+    S.nvvm.mbarrier_try_wait_parity(barrier, 0, 10000000, 0)
+    S.syncthreads()
+    out[row, column] = S.convert(shared[row, column], S.f32) * scale[tid]
+
+
 @unittest.skipUnless(
     get_tma_device() is not None,
     "Requires CUDA on an NVIDIA Hopper-or-newer GPU with TMA support.",
@@ -177,6 +213,22 @@ class TestNVVMTMAOps(unittest.TestCase):
         torch.cuda.synchronize(self.device)
 
         self.assertEqual(out.item(), 7)
+
+    def test_pointer_u8_tma_with_direct_pointer_load(self):
+        src = torch.arange(
+            16 * 16, dtype=torch.uint8, device=self.device
+        ).reshape(16, 16)
+        scale = torch.full(
+            (256,), 0.5, dtype=torch.float32, device=self.device
+        )
+        out = torch.empty((16, 16), dtype=torch.float32, device=self.device)
+
+        kernel_pointer_u8_tma_with_direct_pointer_load[
+            lambda: ((1, 1, 1), (256, 1, 1))
+        ](src, scale, out)
+        torch.cuda.synchronize(self.device)
+
+        self.assertTrue(torch.equal(out, src.float() * scale[0]))
 
 
 if __name__ == "__main__":
