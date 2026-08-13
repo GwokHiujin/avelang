@@ -379,7 +379,7 @@ class NVVMIntrinsic : public NamedModule {
     mlir::Value CreateWgmmaM64N128K128F32BF16BF16Function(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args, bool registerShared,
-        int64_t n) const;
+        int64_t n, int64_t k) const;
 
     mlir::Value CreateWgmmaM64N192K32F32E4M3E4M3Function(
         ast::Call *call_expr, GeneratorContext *ctx,
@@ -412,7 +412,7 @@ class NVVMIntrinsic : public NamedModule {
     bool CheckWgmmaM64N128K128F32BF16BF16Function(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args, bool registerShared,
-        int64_t n) const;
+        int64_t n, int64_t k) const;
 
     bool CheckRawWgmmaFunction(ast::Call *call_expr, GeneratorContext *ctx,
                                llvm::ArrayRef<mlir::Value> resolved_args,
@@ -983,24 +983,26 @@ void NVVMIntrinsic::Initialize() {
                                                              resolved_args);
         });
 
-    for (auto [name, registerShared, n] :
-         {std::tuple{"wgmma_m64n128k128_f32_bf16_bf16_ss", false, 128},
-          std::tuple{"wgmma_m64n176k128_f32_bf16_bf16_ss", false, 176},
-          std::tuple{"wgmma_m64n192k128_f32_bf16_bf16_ss", false, 192},
-          std::tuple{"wgmma_m64n128k128_f32_bf16_bf16_rs", true, 128}}) {
+    for (auto [name, registerShared, n, k] :
+         {std::tuple{"wgmma_m64n128k128_f32_bf16_bf16_ss", false, 128, 128},
+          std::tuple{"wgmma_m64n176k128_f32_bf16_bf16_ss", false, 176, 128},
+          std::tuple{"wgmma_m64n192k128_f32_bf16_bf16_ss", false, 192, 128},
+          std::tuple{"wgmma_m64n128k128_f32_bf16_bf16_rs", true, 128, 128},
+          std::tuple{"wgmma_m64n128k176_f32_bf16_bf16_rs", true, 128, 176},
+          std::tuple{"wgmma_m64n128k192_f32_bf16_bf16_rs", true, 128, 192}}) {
         AddFunction(
             name,
-            [this, registerShared, n](
-                ast::Call *call_expr, GeneratorContext *gen_ctx,
+            [this, registerShared, n,
+             k](ast::Call *call_expr, GeneratorContext *gen_ctx,
                 llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
                 return CreateWgmmaM64N128K128F32BF16BF16Function(
-                    call_expr, gen_ctx, resolved_args, registerShared, n);
+                    call_expr, gen_ctx, resolved_args, registerShared, n, k);
             },
-            [this, registerShared, n](
-                ast::Call *call_expr, GeneratorContext *gen_ctx,
+            [this, registerShared, n,
+             k](ast::Call *call_expr, GeneratorContext *gen_ctx,
                 llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
                 return CheckWgmmaM64N128K128F32BF16BF16Function(
-                    call_expr, gen_ctx, resolved_args, registerShared, n);
+                    call_expr, gen_ctx, resolved_args, registerShared, n, k);
             });
     }
 
@@ -2444,35 +2446,37 @@ mlir::Value NVVMIntrinsic::CreateWgmmaM64NK16F32BF16BF16Function(
 
 bool NVVMIntrinsic::CheckWgmmaM64N128K128F32BF16BF16Function(
     ast::Call *call_expr, GeneratorContext *ctx,
-    llvm::ArrayRef<mlir::Value> resolved_args, bool registerShared,
-    int64_t n) const {
-    std::string name = registerShared
-                               ? "wgmma_m64n128k128_f32_bf16_bf16_rs"
-                           : "wgmma_m64n" + std::to_string(n) +
-                                 "k128_f32_bf16_bf16_ss";
+    llvm::ArrayRef<mlir::Value> resolved_args, bool registerShared, int64_t n,
+    int64_t k) const {
+    std::string name =
+        registerShared
+            ? "wgmma_m64n128k" + std::to_string(k) + "_f32_bf16_bf16_rs"
+            : "wgmma_m64n" + std::to_string(n) + "k128_f32_bf16_bf16_ss";
     auto report = [&](llvm::StringRef message) {
         ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
                                         call_expr->GetSourceRange().getBegin())
             << name << " " << message;
         return false;
     };
-    size_t expected = registerShared ? 10 : 2;
+    size_t registerTiles = k / 16;
+    size_t expected = registerShared ? registerTiles + 2 : 2;
     if (resolved_args.size() != expected)
-        return report(registerShared
-                          ? "requires eight A fragments, desc_b, and acc"
+        return report(
+            registerShared
+                ? "requires one A fragment per K16 tile, desc_b, and acc"
                           : "requires desc_a and desc_b");
     if (registerShared) {
-        for (size_t i = 0; i < 8; ++i) {
+        for (size_t i = 0; i < registerTiles; ++i) {
             auto type =
                 mlir::dyn_cast<mlir::VectorType>(resolved_args[i].getType());
             if (!type || type.getNumElements() != 4 ||
                 !type.getElementType().isInteger(32))
                 return report("A fragments must be vector<4xi32>");
         }
-        if (!resolved_args[8].getType().isInteger(64))
+        if (!resolved_args[registerTiles].getType().isInteger(64))
             return report("descriptor must be i64");
-        auto accType =
-            mlir::dyn_cast<mlir::VectorType>(resolved_args[9].getType());
+        auto accType = mlir::dyn_cast<mlir::VectorType>(
+            resolved_args[registerTiles + 1].getType());
         if (!accType || accType.getNumElements() != 64 ||
             !accType.getElementType().isF32())
             return report("accumulator must be vector<64xf32>");
@@ -2485,10 +2489,10 @@ bool NVVMIntrinsic::CheckWgmmaM64N128K128F32BF16BF16Function(
 
 mlir::Value NVVMIntrinsic::CreateWgmmaM64N128K128F32BF16BF16Function(
     ast::Call *call_expr, GeneratorContext *ctx,
-    llvm::ArrayRef<mlir::Value> resolved_args, bool registerShared,
-    int64_t n) const {
+    llvm::ArrayRef<mlir::Value> resolved_args, bool registerShared, int64_t n,
+    int64_t k) const {
     if (!CheckWgmmaM64N128K128F32BF16BF16Function(call_expr, ctx, resolved_args,
-                                                  registerShared, n))
+                                                  registerShared, n, k))
         return nullptr;
 
     auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
@@ -2541,18 +2545,19 @@ mlir::Value NVVMIntrinsic::CreateWgmmaM64N128K128F32BF16BF16Function(
                                     : ", 1, 1, 1, 0, 0;\n");
         }
     } else {
-        for (int64_t tile = 0; tile < 8; ++tile) {
+        int64_t registerTiles = k / 16;
+        for (int64_t tile = 0; tile < registerTiles; ++tile) {
             for (int64_t i = 0; i < 4; ++i) {
                 operands.push_back(mlir::vector::ExtractOp::create(
                     builder, location, resolved_args[tile], i));
                 constraints.push_back("r");
             }
         }
-        mlir::Value descB = resolved_args[8];
-        for (int64_t tile = 0; tile < 8; ++tile) {
+        mlir::Value descB = resolved_args[registerTiles];
+        for (int64_t tile = 0; tile < registerTiles; ++tile) {
             operands.push_back(descB);
             constraints.push_back("l");
-            if (tile < 7) {
+            if (tile + 1 < registerTiles) {
                 auto offset = mlir::arith::ConstantIntOp::create(
                     builder, location, 256, 64);
                 descB = mlir::arith::AddIOp::create(builder, location, descB,
@@ -2561,10 +2566,10 @@ mlir::Value NVVMIntrinsic::CreateWgmmaM64N128K128F32BF16BF16Function(
         }
         for (int64_t i = 0; i < kOutputs; ++i) {
             operands.push_back(mlir::vector::ExtractOp::create(
-                builder, location, resolved_args[9], i));
+                builder, location, resolved_args[registerTiles + 1], i));
             constraints.push_back(std::to_string(i));
         }
-        for (int64_t tile = 0; tile < 8; ++tile) {
+        for (int64_t tile = 0; tile < registerTiles; ++tile) {
             asmString +=
                 "wgmma.mma_async.sync.aligned.m64n128k16.f32.bf16.bf16 ";
             appendOutputs();
@@ -2574,7 +2579,8 @@ mlir::Value NVVMIntrinsic::CreateWgmmaM64N128K128F32BF16BF16Function(
                     asmString += ", ";
                 asmString += "$" + std::to_string(kOutputs + tile * 4 + i);
             }
-            asmString += "}, $" + std::to_string(kOutputs + 32 + tile) +
+            asmString += "}, $" +
+                         std::to_string(kOutputs + registerTiles * 4 + tile) +
                          ", 1, 1, 1, 1;\n";
         }
     }

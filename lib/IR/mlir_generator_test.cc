@@ -1617,6 +1617,18 @@ def grouped_wgmma_test(dst: S.Tensor((64,), S.f32)):
         regs[0], regs[1], regs[2], regs[3],
         regs[4], regs[5], regs[6], regs[7], desc_b, acc
     )
+    regs176 = S.full((11, 4), 0, S.i32)
+    acc = S.nvvm.wgmma_m64n128k176_f32_bf16_bf16_rs(
+        regs176[0], regs176[1], regs176[2], regs176[3],
+        regs176[4], regs176[5], regs176[6], regs176[7],
+        regs176[8], regs176[9], regs176[10], desc_b, acc
+    )
+    regs192 = S.full((12, 4), 0, S.i32)
+    acc = S.nvvm.wgmma_m64n128k192_f32_bf16_bf16_rs(
+        regs192[0], regs192[1], regs192[2], regs192[3],
+        regs192[4], regs192[5], regs192[6], regs192[7],
+        regs192[8], regs192[9], regs192[10], regs192[11], desc_b, acc
+    )
     dst[0] = acc[0]
 )""""";
 
