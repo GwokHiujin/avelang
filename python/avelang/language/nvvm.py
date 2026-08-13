@@ -294,6 +294,10 @@ def cp_async_bulk_global_shared_cta(
     pass
 
 
+def store_global_v4_u32(dst, dst_offset_bytes, value):
+    pass
+
+
 def cp_async_bulk_prefetch(src, size, src_offset_bytes=0,
                            l2_cache_hint=None):
     pass
