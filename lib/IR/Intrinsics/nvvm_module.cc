@@ -4254,6 +4254,11 @@ mlir::Value NVVMIntrinsic::CreateTMALoadFunction(
             ? resolved_args[6]
             : mlir::arith::ConstantIntOp::create(builder, location, -1, 32)
                   .getResult();
+    mlir::Value expectTx =
+        positionalCount > 7
+            ? resolved_args[7]
+            : mlir::arith::ConstantIntOp::create(builder, location, 1, 1)
+                  .getResult();
 
     for (size_t i = 0; i < keywordCount; ++i) {
         mlir::Value value = resolved_args[positionalCount + i];
@@ -4266,13 +4271,16 @@ mlir::Value NVVMIntrinsic::CreateTMALoadFunction(
             if (value) {
                 multicastMask = value;
             }
+        } else if (name == "expect_tx") {
+            expectTx = value;
         }
     }
 
     cf::NVVMTMALoadOp::create(
         builder, location,
         mlir::ValueRange{resolved_args[0], resolved_args[1], resolved_args[2],
-                         resolved_args[3], mbarId, predicate, multicastMask},
+                         resolved_args[3], mbarId, predicate, multicastMask,
+                         expectTx},
         mlir::ArrayRef<mlir::NamedAttribute>{});
     return ctx->GetCurrentFunctionGenerator()
         ->GetExprGenerator()
@@ -4292,17 +4300,17 @@ bool NVVMIntrinsic::CheckTMALoadFunction(
 
     size_t keywordCount = keywords.size();
     size_t positionalCount = resolved_args.size() - keywordCount;
-    if (positionalCount < 4 || positionalCount > 7) {
+    if (positionalCount < 4 || positionalCount > 8) {
         ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
                                         call_expr->GetSourceRange().getBegin())
             << "tma_load requires dst, desc, coords, barrier and optional "
-               "mbar_id, predicate, multicast_mask";
+               "mbar_id, predicate, multicast_mask, expect_tx";
         return false;
     }
 
     for (auto name : keywords) {
         if (name != "mbar_id" && name != "predicate" &&
-            name != "multicast_mask") {
+            name != "multicast_mask" && name != "expect_tx") {
             ctx->diagnostic_manager->Report(
                 basic::DiagnosticCode::kUnimplemented,
                 call_expr->GetSourceRange().getBegin())
@@ -4364,14 +4372,15 @@ bool NVVMIntrinsic::CheckTMALoadFunction(
     for (size_t i = 4; i < positionalCount; ++i) {
         if (!checkIntArg(resolved_args[i], i == 4   ? "mbar_id"
                                            : i == 5 ? "predicate"
-                                                    : "multicast_mask")) {
+                                           : i == 6 ? "multicast_mask"
+                                                    : "expect_tx")) {
             return false;
         }
     }
     for (size_t i = 0; i < keywordCount; ++i) {
         auto name = llvm::StringRef(keywords[i]);
         auto value = resolved_args[positionalCount + i];
-        if (name == "mbar_id" || name == "predicate" ||
+        if (name == "mbar_id" || name == "predicate" || name == "expect_tx" ||
             (name == "multicast_mask" && value)) {
             if (!checkIntArg(value, name)) {
                 return false;

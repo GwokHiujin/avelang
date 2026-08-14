@@ -346,7 +346,8 @@ def NVVMTMALoadOp : AveLang_GPU_Op<"nvvm_tma_load", []> {
         AnyType:$barrier,
         AnyType:$mbarId,
         AnyType:$predicate,
-        AnyType:$multicastMask
+        AnyType:$multicastMask,
+        AnyType:$expectTx
     );
     let results = (outs);
 
