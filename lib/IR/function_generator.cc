@@ -1,4 +1,5 @@
 #include "Utils/assert.h"
+#include "constant_folder.h"
 #include "layout_operation.h"
 #include "mlir_generator_impl.h"
 #include "type_promotion.h"
@@ -1399,6 +1400,46 @@ void FunctionGenerator::VisitFor(ast::For *for_stmt) {
             mlir::Value lower_bound = operands[0];
             mlir::Value upper_bound = operands[1];
             mlir::Value step = operands[2];
+
+            if (cast_op->hasAttr("avelang_unroll")) {
+                auto lower = ConstantFolder::FoldIntValue(lower_bound);
+                auto upper = ConstantFolder::FoldIntValue(upper_bound);
+                auto stepValue = ConstantFolder::FoldIntValue(step);
+                if (!lower || !upper || !stepValue || *stepValue <= 0) {
+                    ctx_->diagnostic_manager->Report(
+                        basic::DiagnosticCode::kUnimplemented,
+                        for_stmt->GetSourceRange().getBegin())
+                        << "range(..., unroll=True) requires constant bounds "
+                           "and a positive constant step";
+                    cast_op->erase();
+                    return;
+                }
+
+                auto *target = for_stmt->GetTarget();
+                auto *nameTarget = llvm::dyn_cast<ast::Name>(target);
+                if (!nameTarget) {
+                    ctx_->diagnostic_manager->Report(
+                        basic::DiagnosticCode::kUnimplemented,
+                        for_stmt->GetSourceRange().getBegin())
+                        << "Complex loop targets not supported";
+                    cast_op->erase();
+                    return;
+                }
+
+                for (int64_t value = *lower; value < *upper;
+                     value += *stepValue) {
+                    SymbolTable::FrameGuard guard(ctx_->syms.get());
+                    auto inductionValue = mlir::arith::ConstantIndexOp::create(
+                        builder_, GetMLIRLocation(for_stmt), value);
+                    ctx_->syms->DefineSymbol(nameTarget->GetId(),
+                                             inductionValue);
+                    for (auto *stmt : for_stmt->GetBody()) {
+                        DispatchStmt(stmt);
+                    }
+                }
+                cast_op->erase();
+                return;
+            }
 
             // Create scf.for operation
             auto for_op =

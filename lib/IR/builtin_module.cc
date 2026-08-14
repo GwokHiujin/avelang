@@ -1093,25 +1093,47 @@ mlir::Value AveLangModule::CreateRangeFunction(
     auto location = GetCallLocation(ctx, call_expr);
     auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
 
-    const auto &args = call_expr->GetArgs();
+    const auto &keywords = call_expr->GetKeywords();
+    if (resolved_args.size() < keywords.size()) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "range() internal argument mismatch";
+        return nullptr;
+    }
+    size_t positionalCount = resolved_args.size() - keywords.size();
 
     // Validate argument count
-    if (args.size() < 1 || args.size() > 3) {
+    if (positionalCount < 1 || positionalCount > 3) {
         ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
                                         call_expr->GetSourceRange().getBegin())
             << "range() expects 1, 2, or 3 arguments";
         return nullptr;
     }
 
-    if (resolved_args.size() < args.size()) {
-        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
-                                        call_expr->GetSourceRange().getBegin())
-            << "Failed to resolve range arguments";
-        return nullptr;
+    bool unroll = false;
+    for (size_t i = 0; i < keywords.size(); ++i) {
+        if (keywords[i] != "unroll") {
+            ctx->diagnostic_manager->Report(
+                basic::DiagnosticCode::kUnimplemented,
+                call_expr->GetSourceRange().getBegin())
+                << "range() got unsupported keyword argument '"
+                << keywords[i] << "'";
+            return nullptr;
+        }
+        auto folded = ConstantFolder::FoldBoolValue(
+            resolved_args[positionalCount + i]);
+        if (!folded) {
+            ctx->diagnostic_manager->Report(
+                basic::DiagnosticCode::kUnimplemented,
+                call_expr->GetSourceRange().getBegin())
+                << "range() unroll must be a constant bool";
+            return nullptr;
+        }
+        unroll = *folded;
     }
 
     mlir::SmallVector<mlir::Value> arg_values;
-    for (size_t i = 0; i < args.size(); ++i) {
+    for (size_t i = 0; i < positionalCount; ++i) {
         auto value = resolved_args[i];
         if (!value) {
             ctx->diagnostic_manager->Report(
@@ -1127,18 +1149,18 @@ mlir::Value AveLangModule::CreateRangeFunction(
     // variants
     mlir::Value lower_bound, upper_bound, step;
 
-    if (args.size() == 1) {
+    if (positionalCount == 1) {
         // range(stop)
         lower_bound =
             mlir::arith::ConstantIndexOp::create(builder, location, 0);
         upper_bound = arg_values[0];
         step = mlir::arith::ConstantIndexOp::create(builder, location, 1);
-    } else if (args.size() == 2) {
+    } else if (positionalCount == 2) {
         // range(start, stop)
         lower_bound = arg_values[0];
         upper_bound = arg_values[1];
         step = mlir::arith::ConstantIndexOp::create(builder, location, 1);
-    } else { // args.size() == 3
+    } else { // positionalCount == 3
         // range(start, stop, step)
         lower_bound = arg_values[0];
         upper_bound = arg_values[1];
@@ -1167,6 +1189,9 @@ mlir::Value AveLangModule::CreateRangeFunction(
         mlir::ValueRange(range_values));
 
     range_op->setAttr("avelang_range", builder.getBoolAttr(true));
+    if (unroll) {
+        range_op->setAttr("avelang_unroll", builder.getBoolAttr(true));
+    }
 
     return range_op.getResult(0);
 }

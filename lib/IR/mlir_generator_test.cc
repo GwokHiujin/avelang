@@ -960,6 +960,20 @@ def for_loop_range3_test(a: S.Tensor((10, 10), S.i32)):
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateMLIRConstantRange) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def constant_range_test(a: S.Tensor((4,), S.i32)):
+    for i in S.range(4, unroll=True):
+        a[i] = i
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRForLoopWithNestedMinRangeBound) {
     static const std::string kSourceCode = R"""""(
 import avelang
