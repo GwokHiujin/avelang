@@ -1563,6 +1563,49 @@ def raw_wgmma_test(dst: S.Tensor((32,), S.f32)):
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMGroupedWgmma) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def grouped_wgmma_test(dst: S.Tensor((64,), S.f32)):
+    smem_a = S.make_shared((64, 128), S.bf16, 128)
+    smem_b = S.make_shared((128, 128), S.bf16, 128)
+    desc_a = S.nvvm.make_wgmma_descriptor_bits(
+        smem_a, 3, 0, 0, 0, 16, 1024
+    )
+    desc_b = S.nvvm.make_wgmma_descriptor_bits(
+        smem_b, 3, 0, 0, 0, 16, 1024
+    )
+    acc = S.nvvm.wgmma_m64n128k128_f32_bf16_bf16_ss(desc_a, desc_b)
+    regs = S.full((8, 4), 0, S.i32)
+    acc = S.nvvm.wgmma_m64n128k128_f32_bf16_bf16_rs(
+        regs[0], regs[1], regs[2], regs[3],
+        regs[4], regs[5], regs[6], regs[7], desc_b, acc
+    )
+    dst[0] = acc[0]
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMFma) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def nvvm_fma_test(dst: S.Tensor((1,), S.f32)):
+    a = S.convert(2.0, S.f32)
+    b = S.convert(3.0, S.f32)
+    c = S.convert(4.0, S.f32)
+    dst[0] = S.nvvm.fma(a, b, c)
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMSetMaxRegister) {
     static const std::string kSourceCode = R"""""(
 import avelang

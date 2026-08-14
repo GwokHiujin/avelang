@@ -1011,6 +1011,39 @@ void NVVMIntrinsic::Initialize() {
     }
 
     AddFunction(
+        "floatx2_to_bf16x2",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateFloatX2ToBF16X2Function(call_expr, gen_ctx,
+                                                 resolved_args);
+        },
+        [](ast::Call *, GeneratorContext *,
+           llvm::ArrayRef<mlir::Value>) -> bool { return true; });
+
+    for (auto [name, binary] :
+         {std::pair{"fmax", true}, std::pair{"fast_exp2", false}}) {
+        AddFunction(
+            name,
+            [this,
+             binary](ast::Call *call_expr, GeneratorContext *gen_ctx,
+                     llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+                return CreateF32MathFunction(call_expr, gen_ctx, resolved_args,
+                                             binary);
+            },
+            [](ast::Call *, GeneratorContext *,
+               llvm::ArrayRef<mlir::Value>) -> bool { return true; });
+    }
+
+    AddFunction(
+        "fma",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateF32FmaFunction(call_expr, gen_ctx, resolved_args);
+        },
+        [](ast::Call *, GeneratorContext *,
+           llvm::ArrayRef<mlir::Value>) -> bool { return true; });
+
+    AddFunction(
         "wgmma_async",
         [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
                llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
@@ -2732,11 +2765,94 @@ mlir::Value NVVMIntrinsic::CreateFloatToFP8Function(
     return result;
 }
 
+mlir::Value NVVMIntrinsic::CreateFloatX2ToBF16X2Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    auto report = [&]() -> mlir::Value {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "floatx2_to_bf16x2 requires exactly two f32 operands";
+        return nullptr;
+    };
+    if (resolved_args.size() != 2 || !resolved_args[0] || !resolved_args[1] ||
+        !resolved_args[0].getType().isF32() ||
+        !resolved_args[1].getType().isF32()) {
+        return report();
+    }
+
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    auto bf16x2 = mlir::VectorType::get({2}, builder.getBF16Type());
+    auto converted = mlir::NVVM::ConvertF32x2ToBF16x2Op::create(
+        builder, location, bf16x2,
+        /*src_hi=*/resolved_args[1], /*src_lo=*/resolved_args[0],
+        /*random_bits=*/mlir::Value{}, mlir::NVVM::FPRoundingMode::RN,
+        mlir::NVVM::SaturationMode::NONE, /*relu=*/false);
+    auto i32x1 = mlir::VectorType::get({1}, builder.getI32Type());
+    auto bits = mlir::vector::BitCastOp::create(builder, location, i32x1,
+                                                converted.getResult());
+    auto result = mlir::vector::ExtractOp::create(builder, location, bits, 0);
+    SetTypeInfo(result, TypeInfo{true});
+    return result;
+}
+
+mlir::Value NVVMIntrinsic::CreateF32MathFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args, bool binary) const {
+    size_t expected = binary ? 2 : 1;
+    for (auto value : resolved_args) {
+        if (!value || !value.getType().isF32()) {
+            expected = 0;
+            break;
+        }
+    }
+    if (resolved_args.size() != expected) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << (binary ? "fmax requires two f32 operands"
+                       : "fast_exp2 requires one f32 operand");
+        return nullptr;
+    }
+
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto asmString =
+        binary ? "max.f32 $0, $1, $2;" : "ex2.approx.ftz.f32 $0, $1;";
+    auto constraints = binary ? "=f,f,f" : "=f,f";
+    auto inlineAsm = mlir::LLVM::InlineAsmOp::create(
+        builder, builder.getUnknownLoc(), builder.getF32Type(), resolved_args,
+        asmString, constraints, /*hasSideEffects=*/false,
+        /*isAlignStack=*/false, mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+    return inlineAsm.getRes();
+}
+
+mlir::Value NVVMIntrinsic::CreateF32FmaFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (resolved_args.size() != 3 ||
+        llvm::any_of(resolved_args, [](mlir::Value value) {
+            return !value || !value.getType().isF32();
+        })) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "fma requires three f32 operands";
+        return nullptr;
+    }
+
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto inlineAsm = mlir::LLVM::InlineAsmOp::create(
+        builder, builder.getUnknownLoc(), builder.getF32Type(), resolved_args,
+        "fma.rn.f32 $0, $1, $2, $3;", "=f,f,f,f",
+        /*hasSideEffects=*/false, /*isAlignStack=*/false,
+        mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+    return inlineAsm.getRes();
+}
+
 bool NVVMIntrinsic::CheckFloatToFP8Function(
     ast::Call *call_expr, GeneratorContext *ctx,
     llvm::ArrayRef<mlir::Value> resolved_args, bool packed) const {
-    llvm::StringRef name =
-        packed ? "floatx2_to_fp8x2" : "float_to_fp8";
+    llvm::StringRef name = packed ? "floatx2_to_fp8x2" : "float_to_fp8";
     size_t expected = packed ? 2 : 1;
     if (resolved_args.size() != expected) {
         ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
