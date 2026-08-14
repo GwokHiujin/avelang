@@ -1046,7 +1046,8 @@ void NVVMIntrinsic::Initialize() {
     for (auto [name, binary, instruction] :
          {std::tuple{"fmax", true, "max.f32 $0, $1, $2;"},
           std::tuple{"fast_fmax", true, "max.ftz.f32 $0, $1, $2;"},
-          std::tuple{"fast_exp2", false, "ex2.approx.ftz.f32 $0, $1;"}}) {
+          std::tuple{"fast_exp2", false, "ex2.approx.ftz.f32 $0, $1;"},
+          std::tuple{"fast_rcp", false, "rcp.approx.ftz.f32 $0, $1;"}}) {
         AddFunction(
             name,
             [this,

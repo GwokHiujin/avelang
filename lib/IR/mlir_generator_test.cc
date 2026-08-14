@@ -1632,7 +1632,9 @@ import avelang.language as S
 def nvvm_fma_test(dst: S.Tensor((1,), S.f32)):
     a = S.convert(2.0, S.f32)
     b = S.convert(3.0, S.f32)
-    dst[0] = S.nvvm.fast_fmax(a, b)
+    c = S.convert(4.0, S.f32)
+    maximum = S.nvvm.fast_fmax(a, b)
+    dst[0] = maximum + S.nvvm.fast_rcp(c)
 )""""";
 
     RunMLIRGenerationTest(kSourceCode);
