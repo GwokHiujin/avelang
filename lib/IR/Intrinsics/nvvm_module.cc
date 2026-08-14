@@ -2079,17 +2079,35 @@ mlir::Value NVVMIntrinsic::CreateMakeWGMMADescriptorFunction(
         builder, location, resultType, resolved_args[0],
         getI32Attr(resolved_args[1]), getI32Attr(resolved_args[2]),
         getI32Attr(resolved_args[3]), getI32Attr(resolved_args[4]));
-    return descriptor.getResult();
+    mlir::Value result = descriptor.getResult();
+    if (returnRawBits && resolved_args.size() == 7) {
+        static constexpr int64_t kSwizzleBytes[] = {1, 32, 64, 128};
+        int64_t swizzle = *getConstantIntValue(resolved_args[1]);
+        int64_t layoutBytes = kSwizzleBytes[swizzle];
+        int64_t defaultLeading =
+            substrateMemrefType.getDimSize(0) * layoutBytes / 16;
+        int64_t defaultStride = layoutBytes * 8 / 16;
+        int64_t leading = *getConstantIntValue(resolved_args[5]) / 16;
+        int64_t stride = *getConstantIntValue(resolved_args[6]) / 16;
+        int64_t adjustment = (leading - defaultLeading) * (int64_t{1} << 16) +
+                             (stride - defaultStride) * (int64_t{1} << 32);
+        auto adjustmentValue = mlir::arith::ConstantIntOp::create(
+            builder, location, adjustment, 64);
+        result = mlir::arith::AddIOp::create(builder, location, result,
+                                             adjustmentValue);
+    }
+    return result;
 }
 
 bool NVVMIntrinsic::CheckMakeWGMMADescriptorFunction(
     ast::Call *call_expr, GeneratorContext *ctx,
     llvm::ArrayRef<mlir::Value> resolved_args) const {
-    if (resolved_args.size() != 5) {
+    if (resolved_args.size() != 5 && resolved_args.size() != 7) {
         ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
                                         call_expr->GetSourceRange().getBegin())
-            << "make_wgmma_descriptor requires exactly 5 arguments: tensor, "
-               "swizzle_kind, l2promo_kind, oob_kind, interleave_kind";
+            << "make_wgmma_descriptor requires tensor, swizzle_kind, "
+               "l2promo_kind, oob_kind, interleave_kind, and optional "
+               "leading/stride byte offsets";
         return false;
     }
 
@@ -2146,8 +2164,25 @@ bool NVVMIntrinsic::CheckMakeWGMMADescriptorFunction(
         return true;
     };
 
-    return checkKind(1, "swizzle_kind", 3) && checkKind(2, "l2promo_kind", 3) &&
-           checkKind(3, "oob_kind", 1) && checkKind(4, "interleave_kind", 2);
+    if (!checkKind(1, "swizzle_kind", 3) || !checkKind(2, "l2promo_kind", 3) ||
+        !checkKind(3, "oob_kind", 1) || !checkKind(4, "interleave_kind", 2)) {
+        return false;
+    }
+    if (resolved_args.size() == 7) {
+        for (size_t index : {5u, 6u}) {
+            auto value = getConstantIntValue(resolved_args[index]);
+            if (!value || *value < 0 || *value > 0xffff0 ||
+                (*value % 16) != 0) {
+                ctx->diagnostic_manager->Report(
+                    basic::DiagnosticCode::kUnimplemented,
+                    call_expr->GetSourceRange().getBegin())
+                    << "make_wgmma_descriptor leading/stride byte offsets "
+                       "must be constant non-negative multiples of 16";
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 mlir::Value NVVMIntrinsic::CreateWgmmaInitResultFunction(
