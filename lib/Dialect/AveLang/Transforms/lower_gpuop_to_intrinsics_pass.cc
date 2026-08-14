@@ -655,7 +655,7 @@ class NVVMStMatrixLowering : public mlir::OpRewritePattern<NVVMStMatrixOp> {
 
         mlir::func::CallOp::create(rewriter, op.getLoc(), funcName,
                                    mlir::TypeRange(),
-                                   mlir::ValueRange{value, ptrIndex});
+                                   mlir::ValueRange{ptrIndex, value});
         rewriter.eraseOp(op);
         return mlir::success();
     }

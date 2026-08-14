@@ -1500,16 +1500,10 @@ mlir::Value NVVMIntrinsic::CreateStMatrixWithShape(
             }
         }
 
-        auto shape_vec = memref_type.getShape();
-        if (shape_tag == "m8n8") {
-            return shape_vec.size() == 2 && shape_vec[0] == 8 &&
-                   shape_vec[1] == 8;
-        }
-        if (shape_tag == "m16n16") {
-            return shape_vec.size() == 2 && shape_vec[0] == 16 &&
-                   shape_vec[1] == 16;
-        }
-        return false;
+        // PTX stmatrix consumes only the shared-memory address named by each
+        // lane. High-performance swizzled layouts therefore pass a subview at
+        // the lane-specific address rather than a logical 8x8 memref.
+        return !memref_type.getShape().empty();
     };
 
     auto type_to_string = [](mlir::Type type) {
@@ -1520,13 +1514,10 @@ mlir::Value NVVMIntrinsic::CreateStMatrixWithShape(
     };
 
     if (!is_compatible_memref(shape)) {
-        std::string expected_shape = shape == "m8n8" ? "8x8" : "16x16";
         ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
                                         call_expr->GetSourceRange().getBegin())
-            << "stmatrix_" << shape << " expects memref<" << expected_shape
-            << "xb" << bit_width
-            << ", #gpu.address_space<workgroup>> (with optional "
-               "strides/offset) but found "
+            << "stmatrix_" << shape << " expects a non-empty shared memref "
+            << "with b" << bit_width << " elements but found "
             << type_to_string(memref_ptr.getType());
         return nullptr;
     }
