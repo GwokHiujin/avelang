@@ -1,4 +1,5 @@
 import hashlib
+import re
 
 from ..runtime.driver import driver
 from ..backends import backends
@@ -50,8 +51,15 @@ class CompiledKernel:
         # create launcher
         self._run = driver.active.launcher_cls(self.src)
         device = driver.active.get_current_device()
-        self.module, self.function, self.n_regs, self.n_spills, self.n_max_threads = driver.active.utils.load_binary(
-            self.name, self.kernel, 0, device
+        shared = 0
+        if isinstance(self.kernel, bytes):
+            match = re.search(rb"__avelang_dynamic_shared_([0-9]+)", self.kernel)
+            if match:
+                shared = int(match.group(1))
+        if hasattr(self._run, "shared"):
+            self._run.shared = shared
+        self.module, self.function, self.n_regs, self.n_spills, self.n_max_threads = (
+            driver.active.utils.load_binary(self.name, self.kernel, shared, device)
         )
 
     @property

@@ -11,10 +11,12 @@
 #include "gpu_passes.h"
 
 #include <llvm/IR/Function.h>
+#include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Passes/OptimizationLevel.h>
 #include <llvm/Passes/PassBuilder.h>
+#include <llvm/Support/MathExtras.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
@@ -64,6 +66,78 @@ namespace causalflow::avelang::target::gpu {
 using namespace mlir;
 
 namespace {
+
+static void coalesceLargeNVPTXSharedMemory(::llvm::Module &module) {
+    constexpr uint64_t kStaticSharedMemoryLimit = 48 * 1024;
+    constexpr unsigned kSharedAddressSpace = 3;
+    const auto &dataLayout = module.getDataLayout();
+    llvm::SmallVector<::llvm::GlobalVariable *> sharedGlobals;
+    llvm::Align arenaAlignment(1);
+
+    for (auto &global : module.globals()) {
+        if (global.getAddressSpace() != kSharedAddressSpace ||
+            global.isDeclaration()) {
+            continue;
+        }
+        llvm::Align alignment = global.getAlign().value_or(
+            dataLayout.getABITypeAlign(global.getValueType()));
+        arenaAlignment = std::max(arenaAlignment, alignment);
+        sharedGlobals.push_back(&global);
+    }
+    // Pack the arena by decreasing alignment. This is the conventional struct
+    // layout order and, importantly for Hopper, places 128-byte TMA/WGMMA
+    // storage before the 8-byte mbarrier tail instead of shifting every tensor
+    // by a barrier-sized prefix.
+    llvm::stable_sort(sharedGlobals, [&](auto *lhs, auto *rhs) {
+        auto getAlignment = [&](auto *global) {
+            return global->getAlign().value_or(
+                dataLayout.getABITypeAlign(global->getValueType()));
+        };
+        return getAlignment(lhs) > getAlignment(rhs);
+    });
+    uint64_t totalBytes = 0;
+    for (auto *global : sharedGlobals) {
+        llvm::Align alignment = global->getAlign().value_or(
+            dataLayout.getABITypeAlign(global->getValueType()));
+        totalBytes = llvm::alignTo(totalBytes, alignment);
+        totalBytes += dataLayout.getTypeAllocSize(global->getValueType());
+    }
+    if (totalBytes <= kStaticSharedMemoryLimit) {
+        return;
+    }
+    // Keep one aligned guard segment after the final allocation. Hopper TMA
+    // validates the swizzled transaction footprint against the dynamic arena
+    // boundary, including its terminal 128-byte sector.
+    totalBytes =
+        llvm::alignTo(totalBytes, arenaAlignment) + arenaAlignment.value();
+
+    auto &context = module.getContext();
+    auto *arenaType =
+        ::llvm::ArrayType::get(::llvm::Type::getInt8Ty(context), 0);
+    auto *arena = new ::llvm::GlobalVariable(
+        module, arenaType, /*isConstant=*/false,
+        ::llvm::GlobalValue::ExternalLinkage, /*Initializer=*/nullptr,
+        "__avelang_dynamic_shared_" + std::to_string(totalBytes),
+        /*InsertBefore=*/nullptr, ::llvm::GlobalValue::NotThreadLocal,
+        kSharedAddressSpace);
+    arena->setAlignment(arenaAlignment);
+
+    uint64_t offset = 0;
+    auto *zero = ::llvm::ConstantInt::get(::llvm::Type::getInt64Ty(context), 0);
+    for (auto *global : sharedGlobals) {
+        llvm::Align alignment = global->getAlign().value_or(
+            dataLayout.getABITypeAlign(global->getValueType()));
+        offset = llvm::alignTo(offset, alignment);
+        auto *byteOffset =
+            ::llvm::ConstantInt::get(::llvm::Type::getInt64Ty(context), offset);
+        llvm::SmallVector<::llvm::Constant *, 2> indices{zero, byteOffset};
+        auto *replacement =
+            ::llvm::ConstantExpr::getGetElementPtr(arenaType, arena, indices);
+        global->replaceAllUsesWith(replacement);
+        offset += dataLayout.getTypeAllocSize(global->getValueType());
+        global->eraseFromParent();
+    }
+}
 
 static Value convertLLVMIntegerPlain(Value value, IntegerType targetType,
                                      Location loc, PatternRewriter &rewriter) {
@@ -602,6 +676,19 @@ class LowerToLLVM::Impl {
         // Configure the LLVM module with correct target triple and data layout
         llvmModule->setTargetTriple(llvm::Triple(targetTriple));
         llvmModule->setDataLayout(targetMachine->createDataLayout());
+        if (targetTriple.find("nvptx") != std::string::npos) {
+            coalesceLargeNVPTXSharedMemory(*llvmModule);
+            if (options.num_warps > 0) {
+                for (auto &function : llvmModule->functions()) {
+                    if (function.getCallingConv() ==
+                        llvm::CallingConv::PTX_Kernel) {
+                        function.addFnAttr(
+                            "nvvm.maxntid",
+                            std::to_string(options.num_warps * 32) + ",1,1");
+                    }
+                }
+            }
+        }
 
         // Only global kernels should have external linkage.
         for (auto &func : llvmModule->functions()) {
