@@ -276,4 +276,7 @@ def compile_to_binary(src, target, opt_level: int = 2, options=None):
     src.tma_specs = generator.get_tma_descriptor_specs()
 
     num_warps = getattr(options, "num_warps", -1)
-    return generator.compile_to_binary_bytes(target.tuple, target.chip, opt_level, num_warps)
+    fast_math = getattr(options, "fast_math", False)
+    return generator.compile_to_binary_bytes(
+        target.tuple, target.chip, opt_level, num_warps, fast_math
+    )

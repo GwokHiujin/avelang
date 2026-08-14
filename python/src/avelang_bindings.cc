@@ -292,7 +292,8 @@ class AveLangMLIRGenerator {
                             unsigned opt_level, int num_warps = -1);
     py::bytes CompileToBinaryBytes(const std::string &target_triple,
                                    const std::string &target_chipset,
-                                   unsigned opt_level, int num_warps = -1);
+                                   unsigned opt_level, int num_warps = -1,
+                                   bool fast_math = false);
 
   private:
     void ClearMLIRDiagnostics();
@@ -670,7 +671,8 @@ std::string AveLangMLIRGenerator::GetAssembly(const std::string &target_triple,
 py::bytes
 AveLangMLIRGenerator::CompileToBinaryBytes(const std::string &target_triple,
                                            const std::string &target_chipset,
-                                           unsigned opt_level, int num_warps) {
+                                           unsigned opt_level, int num_warps,
+                                           bool fast_math) {
     auto module = generator_.GetModule();
     ThrowIfDiagnosticsFailed(
         "Failed to lower MLIR to LLVM IR due to compiler diagnostics");
@@ -684,6 +686,7 @@ AveLangMLIRGenerator::CompileToBinaryBytes(const std::string &target_triple,
     options.chipset = target_chipset;
     options.optimization_level = opt_level;
     options.num_warps = num_warps;
+    options.fast_math = fast_math;
 
     auto backend =
         target::gpu::GPUBackendRegistry::getInstance().createBackendForTriple(
@@ -751,5 +754,6 @@ PYBIND11_MODULE(_avelang_bindings, m) {
         .def("compile_to_binary_bytes",
              &AveLangMLIRGenerator::CompileToBinaryBytes,
              py::arg("target_triple"), py::arg("target_chipset"),
-             py::arg("opt_level"), py::arg("num_warps") = -1);
+             py::arg("opt_level"), py::arg("num_warps") = -1,
+             py::arg("fast_math") = false);
 }

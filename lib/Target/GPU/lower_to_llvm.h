@@ -26,6 +26,10 @@ struct GPUCompilationOptions {
     /// Number of warps (or waves) requested by the frontend. -1 means unset.
     int num_warps = -1;
 
+    /// Permit target fast-math modes. On NVPTX this includes flushing f32
+    /// denormals, matching nvcc's --use_fast_math mode.
+    bool fast_math = false;
+
     /// Use bare pointer calling convention for memref
     bool use_bare_ptr_memref_call_conv = true;
 

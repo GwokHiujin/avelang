@@ -688,6 +688,14 @@ class LowerToLLVM::Impl {
                     }
                 }
             }
+            if (options.fast_math) {
+                for (auto &function : llvmModule->functions()) {
+                    if (!function.isDeclaration()) {
+                        function.addFnAttr("denormal-fp-math-f32",
+                                           "preserve-sign,preserve-sign");
+                    }
+                }
+            }
         }
 
         // Only global kernels should have external linkage.
