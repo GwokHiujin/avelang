@@ -397,7 +397,8 @@ class NVVMIntrinsic : public NamedModule {
     mlir::Value CreateF32MathFunction(ast::Call *call_expr,
                                       GeneratorContext *ctx,
                                       llvm::ArrayRef<mlir::Value> resolved_args,
-                                      bool binary) const;
+                                      bool binary,
+                                      llvm::StringRef instruction) const;
 
     mlir::Value
     CreateF32FmaFunction(ast::Call *call_expr, GeneratorContext *ctx,
@@ -1042,15 +1043,19 @@ void NVVMIntrinsic::Initialize() {
         [](ast::Call *, GeneratorContext *,
            llvm::ArrayRef<mlir::Value>) -> bool { return true; });
 
-    for (auto [name, binary] :
-         {std::pair{"fmax", true}, std::pair{"fast_exp2", false}}) {
+    for (auto [name, binary, instruction] :
+         {std::tuple{"fmax", true, "max.f32 $0, $1, $2;"},
+          std::tuple{"fast_fmax", true, "max.ftz.f32 $0, $1, $2;"},
+          std::tuple{"fast_exp2", false, "ex2.approx.ftz.f32 $0, $1;"}}) {
         AddFunction(
             name,
             [this,
-             binary](ast::Call *call_expr, GeneratorContext *gen_ctx,
-                     llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+             binary,
+             instruction](ast::Call *call_expr, GeneratorContext *gen_ctx,
+                          llvm::ArrayRef<mlir::Value> resolved_args)
+                -> mlir::Value {
                 return CreateF32MathFunction(call_expr, gen_ctx, resolved_args,
-                                             binary);
+                                             binary, instruction);
             },
             [](ast::Call *, GeneratorContext *,
                llvm::ArrayRef<mlir::Value>) -> bool { return true; });
@@ -2823,7 +2828,8 @@ mlir::Value NVVMIntrinsic::CreateFloatX2ToBF16X2Function(
 
 mlir::Value NVVMIntrinsic::CreateF32MathFunction(
     ast::Call *call_expr, GeneratorContext *ctx,
-    llvm::ArrayRef<mlir::Value> resolved_args, bool binary) const {
+    llvm::ArrayRef<mlir::Value> resolved_args, bool binary,
+    llvm::StringRef instruction) const {
     size_t expected = binary ? 2 : 1;
     for (auto value : resolved_args) {
         if (!value || !value.getType().isF32()) {
@@ -2840,12 +2846,10 @@ mlir::Value NVVMIntrinsic::CreateF32MathFunction(
     }
 
     auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
-    auto asmString =
-        binary ? "max.f32 $0, $1, $2;" : "ex2.approx.ftz.f32 $0, $1;";
     auto constraints = binary ? "=f,f,f" : "=f,f";
     auto inlineAsm = mlir::LLVM::InlineAsmOp::create(
         builder, builder.getUnknownLoc(), builder.getF32Type(), resolved_args,
-        asmString, constraints, /*hasSideEffects=*/false,
+        instruction, constraints, /*hasSideEffects=*/false,
         /*isAlignStack=*/false, mlir::LLVM::tailcallkind::TailCallKind::None,
         mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
     return inlineAsm.getRes();
