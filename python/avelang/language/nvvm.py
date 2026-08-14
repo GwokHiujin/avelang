@@ -195,6 +195,10 @@ def fmax(value0, value1):
     pass
 
 
+def fast_fmax(value0, value1):
+    pass
+
+
 def fast_exp2(value):
     pass
 
