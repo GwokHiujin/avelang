@@ -203,6 +203,10 @@ def fast_exp2(value):
     pass
 
 
+def fast_rcp(value):
+    pass
+
+
 def fma(a, b, c):
     pass
 
