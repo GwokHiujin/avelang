@@ -7,6 +7,7 @@ from ...compiler.code_generator import compile_to_binary
 @dataclass(frozen=True)
 class NvidiaCompilerOptions:
     num_warps: int = -1
+    fast_math: bool = False
 
 
 class NvidiaCompiler(BaseBackend):
@@ -23,6 +24,8 @@ class NvidiaCompiler(BaseBackend):
         args = {}
         if "num_warps" in options and options["num_warps"] is not None:
             args["num_warps"] = options["num_warps"]
+        if "fast_math" in options and options["fast_math"] is not None:
+            args["fast_math"] = options["fast_math"]
         return NvidiaCompilerOptions(**args)
 
     def compile(self, src, target, options=None):

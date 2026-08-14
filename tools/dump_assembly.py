@@ -289,10 +289,11 @@ def _dump_final_assembly(
     target_chipset: str,
     opt_level: int,
     num_warps: int = -1,
+    fast_math: bool = False,
     symbol_name: str | None = None,
 ) -> str:
     binary = generator.compile_to_binary_bytes(
-        target_triple, target_chipset, opt_level, num_warps
+        target_triple, target_chipset, opt_level, num_warps, fast_math
     )
     return _render_final_binary(binary, target_triple, symbol_name)
 
@@ -351,6 +352,11 @@ def main() -> int:
         type=int,
         default=-1,
         help="Attach the kernel's maximum warp count",
+    )
+    parser.add_argument(
+        "--fast-math",
+        action="store_true",
+        help="Enable target fast-math modes (including NVPTX f32 FTZ)",
     )
     parser.add_argument(
         "--constexprs-json",
@@ -425,6 +431,7 @@ def main() -> int:
         args.target_chipset,
         args.opt_level,
         args.num_warps,
+        args.fast_math,
         function_name,
     )
 
