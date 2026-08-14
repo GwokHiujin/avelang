@@ -844,18 +844,24 @@ class NVVMTMALoadLowering : public mlir::OpRewritePattern<NVVMTMALoadOp> {
             return mlir::failure();
         }
 
+        auto expectTx = getConstantIntValue(op.getExpectTx());
+        if (!expectTx) {
+            return mlir::failure();
+        }
+        if (*expectTx != 0) {
         auto txCountValue = mlir::arith::ConstantIndexOp::create(
             rewriter, op.getLoc(), *txCount);
         mlir::nvgpu::MBarrierArriveExpectTxOp::create(
             rewriter, op.getLoc(), op.getBarrier(), txCountValue, mbarId,
             predicate);
+        }
 
         mlir::Value multicastMask;
         auto maskSentinel = getConstantIntValue(op.getMulticastMask());
         if (!maskSentinel || *maskSentinel >= 0) {
-            multicastMask = castIntegerTo(op.getMulticastMask(),
-                                          rewriter.getI16Type(), op.getLoc(),
-                                          rewriter);
+            multicastMask =
+                castIntegerTo(op.getMulticastMask(), rewriter.getI16Type(),
+                              op.getLoc(), rewriter);
             if (!multicastMask) {
                 return mlir::failure();
             }
