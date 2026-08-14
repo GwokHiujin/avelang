@@ -402,7 +402,8 @@ class NVVMIntrinsic : public NamedModule {
 
     mlir::Value
     CreateF32FmaFunction(ast::Call *call_expr, GeneratorContext *ctx,
-                         llvm::ArrayRef<mlir::Value> resolved_args) const;
+                         llvm::ArrayRef<mlir::Value> resolved_args,
+                         bool fast) const;
 
     bool CheckWgmmaM64N128K16F32BF16BF16RSFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
@@ -1062,14 +1063,19 @@ void NVVMIntrinsic::Initialize() {
                llvm::ArrayRef<mlir::Value>) -> bool { return true; });
     }
 
-    AddFunction(
-        "fma",
-        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
-               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
-            return CreateF32FmaFunction(call_expr, gen_ctx, resolved_args);
-        },
-        [](ast::Call *, GeneratorContext *,
-           llvm::ArrayRef<mlir::Value>) -> bool { return true; });
+    for (auto [name, fast] :
+         {std::pair{"fma", false}, std::pair{"fast_fma", true}}) {
+        AddFunction(
+            name,
+            [this,
+             fast](ast::Call *call_expr, GeneratorContext *gen_ctx,
+                   llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+                return CreateF32FmaFunction(call_expr, gen_ctx, resolved_args,
+                                            fast);
+            },
+            [](ast::Call *, GeneratorContext *,
+               llvm::ArrayRef<mlir::Value>) -> bool { return true; });
+    }
 
     AddFunction(
         "wgmma_async",
@@ -2858,7 +2864,7 @@ mlir::Value NVVMIntrinsic::CreateF32MathFunction(
 
 mlir::Value NVVMIntrinsic::CreateF32FmaFunction(
     ast::Call *call_expr, GeneratorContext *ctx,
-    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    llvm::ArrayRef<mlir::Value> resolved_args, bool fast) const {
     if (resolved_args.size() != 3 ||
         llvm::any_of(resolved_args, [](mlir::Value value) {
             return !value || !value.getType().isF32();
@@ -2872,7 +2878,9 @@ mlir::Value NVVMIntrinsic::CreateF32FmaFunction(
     auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
     auto inlineAsm = mlir::LLVM::InlineAsmOp::create(
         builder, builder.getUnknownLoc(), builder.getF32Type(), resolved_args,
-        "fma.rn.f32 $0, $1, $2, $3;", "=f,f,f,f",
+        fast ? "fma.rn.ftz.f32 $0, $1, $2, $3;"
+             : "fma.rn.f32 $0, $1, $2, $3;",
+        "=f,f,f,f",
         /*hasSideEffects=*/false, /*isAlignStack=*/false,
         mlir::LLVM::tailcallkind::TailCallKind::None,
         mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});

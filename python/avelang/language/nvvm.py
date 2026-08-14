@@ -211,6 +211,10 @@ def fma(a, b, c):
     pass
 
 
+def fast_fma(a, b, c):
+    pass
+
+
 def wgmma_async(desc_a, desc_b, acc):
     pass
 
