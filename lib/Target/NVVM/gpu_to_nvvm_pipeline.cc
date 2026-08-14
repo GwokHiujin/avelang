@@ -122,6 +122,40 @@ struct ConvertGPUToNVVMWithNVGPUTypesPass
     bool useBarePtrCallConv = true;
 };
 
+/// Use the same unbounded raw-PTX wait loop emitted by CUDA's Hopper helper.
+/// MLIR's stock NVVM op uses the timed instruction and expands every wait with
+/// a second phase check plus NANOSLEEP fallback, which is measurably worse for
+/// the short producer/consumer stages used by attention.
+struct LowerMBarrierWaitToRawPtxPass
+    : public PassWrapper<LowerMBarrierWaitToRawPtxPass,
+                         OperationPass<gpu::GPUModuleOp>> {
+    MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(
+        LowerMBarrierWaitToRawPtxPass)
+
+    void runOnOperation() override {
+        SmallVector<NVVM::MBarrierTryWaitParityOp> waits;
+        getOperation().walk(
+            [&](NVVM::MBarrierTryWaitParityOp op) { waits.push_back(op); });
+        for (auto wait : waits) {
+            OpBuilder builder(wait);
+            LLVM::InlineAsmOp::create(
+                builder, wait.getLoc(), TypeRange{},
+                ValueRange{wait.getAddr(), wait.getPhase()},
+                "{\n"
+                ".reg .pred done;\n"
+                "L__avelang_mbarrier_wait_${:uid}:\n"
+                "mbarrier.try_wait.parity.shared::cta.b64 done, [$0], $1;\n"
+                "@!done bra.uni L__avelang_mbarrier_wait_${:uid};\n"
+                "}",
+                "r,r,~{memory}", /*hasSideEffects=*/true,
+                /*isAlignStack=*/false,
+                LLVM::tailcallkind::TailCallKind::None,
+                LLVM::AsmDialectAttr{}, ArrayAttr{});
+            wait.erase();
+        }
+    }
+};
+
 } // namespace
 
 static void buildCommonPassPipeline(OpPassManager &pm,
@@ -158,6 +192,8 @@ static void buildGpuPassPipeline(OpPassManager &pm,
         std::make_unique<ConvertGPUToNVVMWithNVGPUTypesPass>(
             kIndexBitwidth, options.use_bare_ptr_memref_call_conv));
     pm.addNestedPass<gpu::GPUModuleOp>(createConvertNVGPUToNVVMPass());
+    pm.addNestedPass<gpu::GPUModuleOp>(
+        std::make_unique<LowerMBarrierWaitToRawPtxPass>());
     pm.addPass(createConvertNVVMToLLVMPass());
 
     // Add vector-to-LLVM pass to lower vector operations from intrinsics
