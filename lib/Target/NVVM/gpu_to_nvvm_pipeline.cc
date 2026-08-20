@@ -32,7 +32,7 @@ namespace causalflow::avelang::target::nvvm {
 
 using namespace mlir;
 
-static const int kIndexBitwidth = 64;
+static const int kIndexBitwidth = 32;
 
 namespace {
 
