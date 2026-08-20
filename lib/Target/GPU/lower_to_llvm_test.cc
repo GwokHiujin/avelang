@@ -3,9 +3,11 @@
 #include "avelang/config.h"
 #include "gpu_passes.h"
 #include "lower_to_llvm.h"
+#include "reconcile_nvgpu_index_bitwidth.h"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
+#include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/IR/Verifier.h>
 #include <mlir/Parser/Parser.h>
 #include <mlir/Pass/PassManager.h>
@@ -333,6 +335,40 @@ module {
     EXPECT_NE(llvmDump.find("shl i32"), std::string::npos) << llvmDump;
     EXPECT_NE(llvmDump.find("add i"), std::string::npos) << llvmDump;
     EXPECT_NE(llvmDump.find("store i64"), std::string::npos);
+}
+
+TEST_F(LLVMTargetTest, ReconcilePointerTruncatedByIndexLowering) {
+    const std::string mlirCode = R"(
+module {
+  llvm.func @reconcile_truncated_pointer(%arg0: !llvm.ptr) -> i64 {
+    %0 = llvm.ptrtoint %arg0 : !llvm.ptr to i64
+    %1 = llvm.trunc %0 : i64 to i32
+    %2 = llvm.mlir.constant(16 : i32) : i32
+    %3 = llvm.add %1, %2 : i32
+    %4 = llvm.zext %3 : i32 to i64
+    llvm.return %4 : i64
+  }
+})";
+
+    auto module = parseMLIRString(mlirCode);
+    ASSERT_TRUE(module);
+
+    mlir::PassManager pm(module->getContext());
+    pm.addPass(createReconcileNVGPUIndexBitwidthPass());
+    ASSERT_TRUE(mlir::succeeded(pm.run(*module)));
+
+    int truncCount = 0;
+    int i64AddCount = 0;
+    module->walk([&](mlir::LLVM::TruncOp) { ++truncCount; });
+    module->walk([&](mlir::LLVM::AddOp add) {
+        auto type = mlir::dyn_cast<mlir::IntegerType>(add.getType());
+        if (type && type.getWidth() == 64) {
+            ++i64AddCount;
+        }
+    });
+
+    EXPECT_EQ(truncCount, 0);
+    EXPECT_EQ(i64AddCount, 1);
 }
 
 TEST_F(LLVMTargetTest, SharedMemory) {

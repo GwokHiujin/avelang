@@ -9,6 +9,7 @@
 #include "avelang/config.h"
 #include "gpu_backend.h"
 #include "gpu_passes.h"
+#include "reconcile_nvgpu_index_bitwidth.h"
 
 #include <llvm/IR/Function.h>
 #include <llvm/IR/LLVMContext.h>
@@ -288,6 +289,7 @@ class LowerToLLVM::Impl {
         pm.addPass(::mlir::createReconcileUnrealizedCastsPass());
         if (targetTriple.find("nvptx") != std::string::npos) {
             pm.addPass(createSetNVVMTMADescriptorABIAttributesPass());
+            pm.addPass(createReconcileNVGPUIndexBitwidthPass());
         }
 
         pm.addPass(::mlir::createCanonicalizerPass());
