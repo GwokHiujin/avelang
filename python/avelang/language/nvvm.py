@@ -13,6 +13,10 @@ def mma_16x8x8_f16_f32(a, b, c):
     pass
 
 
+def shared_address(ptr):
+    pass
+
+
 def ldmatrix_m8n8_x1_b16(ptr):
     pass
 

@@ -309,6 +309,9 @@ class NVVMIntrinsic : public NamedModule {
     mlir::Value CreateMma16x8x8F16F32Function(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
+    mlir::Value CreateSharedAddressFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
 
     mlir::Value CreateWgmmaFenceAlignedFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
@@ -723,6 +726,16 @@ void NVVMIntrinsic::Initialize() {
         AddLdMatrixFactory(base_name, "m8n8", num, 16, false);
         AddLdMatrixFactory(base_name + "_trans", "m8n8", num, 16, true);
     }
+
+    AddFunction(
+        "shared_address",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateSharedAddressFunction(call_expr, gen_ctx,
+                                               resolved_args);
+        },
+        [](ast::Call *, GeneratorContext *,
+           llvm::ArrayRef<mlir::Value>) -> bool { return true; });
 
     for (int num : {1, 2, 4}) {
         std::string base_name =
@@ -1551,6 +1564,49 @@ mlir::Value NVVMIntrinsic::CreateLdMatrixWithShape(
 
     auto memref_ptr = resolved_args[0];
 
+    if (memref_ptr.getType().isInteger(32)) {
+        mlir::Type result_type = builder.getI32Type();
+        if (num > 1) {
+            llvm::SmallVector<mlir::Type> resultElements(
+                num, builder.getI32Type());
+            result_type = mlir::LLVM::LLVMStructType::getLiteral(
+                builder.getContext(), resultElements);
+        }
+        std::string outputs = "{";
+        std::string constraints;
+        for (int index = 0; index < num; ++index) {
+            if (index != 0) {
+                outputs += ", ";
+                constraints += ",";
+            }
+            outputs += "$" + std::to_string(index);
+            constraints += "=r";
+        }
+        outputs += "}";
+        constraints += ",r";
+        std::string instruction =
+            "ldmatrix.sync.aligned.m8n8.x" + std::to_string(num) +
+            (transpose ? ".trans.shared.b16 " : ".shared.b16 ") + outputs +
+            ", [$" + std::to_string(num) + "];";
+        auto inlineAsm = mlir::LLVM::InlineAsmOp::create(
+            builder, location, result_type, resolved_args, instruction,
+            constraints, /*hasSideEffects=*/true, /*isAlignStack=*/false,
+            mlir::LLVM::tailcallkind::TailCallKind::None,
+            mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+        if (num == 1) {
+            return inlineAsm.getRes();
+        }
+        llvm::SmallVector<mlir::Value> results;
+        for (int index = 0; index < num; ++index) {
+            results.push_back(mlir::LLVM::ExtractValueOp::create(
+                builder, location, builder.getI32Type(), inlineAsm.getRes(),
+                llvm::ArrayRef<int64_t>{index}));
+        }
+        return mlir::vector::FromElementsOp::create(
+            builder, location,
+            mlir::VectorType::get({num}, builder.getI32Type()), results);
+    }
+
     auto memref_type = mlir::dyn_cast<cf::MemRefType>(memref_ptr.getType());
     if (!memref_type) {
         ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
@@ -1630,6 +1686,32 @@ mlir::Value NVVMIntrinsic::CreateLdMatrixWithShape(
         builder.getBoolAttr(transpose));
 
     return ld_matrix_op.getResult();
+}
+
+mlir::Value NVVMIntrinsic::CreateSharedAddressFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (resolved_args.size() != 1 || !resolved_args[0]) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "shared_address requires one shared memref";
+        return nullptr;
+    }
+    auto memrefType = mlir::dyn_cast<cf::MemRefType>(resolved_args[0].getType());
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto gpuSpace = mlir::gpu::AddressSpaceAttr::get(
+        builder.getContext(), mlir::gpu::AddressSpace::Workgroup);
+    if (!memrefType || memrefType.getMemorySpace() != gpuSpace) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "shared_address requires a workgroup memref";
+        return nullptr;
+    }
+    auto location = builder.getUnknownLoc();
+    auto address = cf::AveLangMemRefExtractAlignedPointerAsIndexOp::create(
+        builder, location, builder.getIndexType(), resolved_args[0]);
+    return mlir::arith::IndexCastOp::create(
+        builder, location, builder.getI32Type(), address.getResult());
 }
 
 mlir::Value NVVMIntrinsic::CreateStMatrixWithShape(
@@ -1778,10 +1860,12 @@ bool NVVMIntrinsic::CheckLdMatrixWithShape(
         return false;
     }
 
-    if (!mlir::isa<cf::MemRefType>(resolved_args[0].getType())) {
+    if (!mlir::isa<cf::MemRefType>(resolved_args[0].getType()) &&
+        !resolved_args[0].getType().isInteger(32)) {
         ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
                                         call_expr->GetSourceRange().getBegin())
-            << "ldmatrix_" << shape << " expects memref pointer operand";
+            << "ldmatrix_" << shape
+            << " expects a shared memref or i32 shared address";
         return false;
     }
 
