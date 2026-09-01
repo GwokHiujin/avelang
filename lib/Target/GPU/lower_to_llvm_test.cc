@@ -150,6 +150,28 @@ TEST_F(LLVMTargetTest, SimpleFunction) {
 }
 
 #if defined(WITH_CUDA)
+TEST_F(LLVMTargetTest, LinkedIntrinsicImplementationsAreInlined) {
+    compilation_options_.optimization_level = 0;
+    const std::string mlirCode = R"(
+module {
+  func.func @mma_kernel(%arg0: !ave.memref<!ave.layout<dims = [1], strides = [1]>, f16> {llvm.name = "out"}) attributes {ave.gpu_func = 2 : i32} {
+    %a = arith.constant dense<0.0> : vector<8xf16>
+    %b = arith.constant dense<0.0> : vector<4xf16>
+    %c = arith.constant dense<0.0> : vector<4xf16>
+    %result = ave.gpu.nvvm_mma %a, %b, %c : vector<8xf16>, vector<4xf16>, vector<4xf16> -> vector<4xf16>
+    %value = vector.extract %result[0] : f16 from vector<4xf16>
+    %c0 = arith.constant 0 : index
+    ave.memref.store %value, %arg0[%c0] : f16, !ave.memref<!ave.layout<dims = [1], strides = [1]>, f16>
+    return
+  }
+})";
+
+    std::string llvmDump;
+    auto llvmModule = CompileToLLVM(mlirCode, nullptr, &llvmDump);
+    ASSERT_NE(llvmModule, nullptr);
+    EXPECT_EQ(llvmDump.find("_avelang_nvvm_mma"), std::string::npos);
+}
+
 TEST_F(LLVMTargetTest, TMADescriptorUsesKernelArgumentABI) {
     const std::string mlirCode = R"(
 module {

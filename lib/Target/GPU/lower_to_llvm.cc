@@ -585,6 +585,7 @@ class LowerToLLVM::Impl {
         pm.addNestedPass<mlir::func::FuncOp>(
             causalflow::avelang::dialect::createHoistAllocaPass());
         pm.addPass(createLinkIntrinsicImplementationPass());
+        pm.addPass(::mlir::createInlinerPass());
         pm.addPass(::mlir::createCanonicalizerPass());
         pm.addPass(::mlir::createCSEPass());
 
