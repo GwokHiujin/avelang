@@ -87,6 +87,47 @@ def gemm_nvvm_16x8x16(
         C[warp_row + (lane_id % MMA_M), warp_col + j] = c_smem[(lane_id % MMA_M), j]
 
 
+@avelang.jit
+def gemm_nvvm_bf16_16x8x16(
+    A: S.Tensor((16, 16), S.bf16),
+    B: S.Tensor((16, 8), S.bf16),
+    C: S.Tensor((16, 8), S.f32),
+):
+    lane = S.thread_id(0)
+    a_smem = S.make_shared((16, 16), S.bf16)
+    b_smem = S.make_shared((8, 16), S.bf16)
+    c_smem = S.make_shared((16, 8), S.f32)
+
+    row_a = lane >> 1
+    col_a = (lane & 1) * 8
+    row_b = (lane & 15) >> 1
+    col_b = (lane & 1) * 8
+    for element in S.range(8):
+        a_smem[row_a, col_a + element] = A[row_a, col_a + element]
+        if lane < 16:
+            b_smem[row_b, col_b + element] = B[col_b + element, row_b]
+    S.syncthreads()
+
+    a_tile = S.subview(a_smem, (lane & 15, (lane >> 4) * 8), (8, 8), (1, 1))
+    b_tile = S.subview(b_smem, (lane & 7, ((lane >> 3) & 1) * 8), (8, 8), (1, 1))
+    a_frag = S.nvvm.ldmatrix_m8n8_x4_b16(a_tile)
+    b_frag = S.nvvm.ldmatrix_m8n8_x2_b16(b_tile)
+    acc = S.full((4,), 0.0, S.f32)
+    acc = S.nvvm.mma_16x8x16_bf16_f32(a_frag, b_frag, acc)
+
+    row = lane >> 2
+    col = (lane & 3) * 2
+    c_smem[row, col] = acc[0]
+    c_smem[row, col + 1] = acc[1]
+    c_smem[row + 8, col] = acc[2]
+    c_smem[row + 8, col + 1] = acc[3]
+    S.syncthreads()
+
+    for element in S.range(4):
+        index = lane + element * 32
+        C[index // 8, index & 7] = c_smem[index // 8, index & 7]
+
+
 @unittest.skipUnless(
     has_cuda_nvidia(),
     "Requires CUDA with an NVIDIA GPU.",
@@ -121,6 +162,17 @@ class TestGEMM(unittest.TestCase):
             msg=f"GEMM results do not match.\nExpected:\n{expected}\nActual:\n{actual}\n"
             f"Max absolute difference: {torch.max(torch.abs(actual - expected))}",
         )
+
+    def test_gemm_bf16_f32_accumulator(self):
+        """Test the BF16 m16n8k16 MMA shape used by KDA."""
+        A = torch.randn((16, 16), dtype=torch.bfloat16, device="cuda")
+        B = torch.randn((16, 8), dtype=torch.bfloat16, device="cuda")
+        C = torch.empty((16, 8), dtype=torch.float32, device="cuda")
+        expected = A.float() @ B.float()
+
+        gemm_nvvm_bf16_16x8x16[lambda: ((1, 1, 1), (32, 1, 1))](A, B, C)
+
+        torch.testing.assert_close(C, expected, rtol=1e-2, atol=1e-2)
 
 
 if __name__ == "__main__":

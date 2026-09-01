@@ -303,6 +303,9 @@ class NVVMIntrinsic : public NamedModule {
     mlir::Value CreateMma16x8x16F16F16Function(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
+    mlir::Value CreateMma16x8x16BF16F32Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
     mlir::Value CreateMma16x8x8F16F32Function(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
@@ -681,6 +684,18 @@ void NVVMIntrinsic::Initialize() {
                llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
             return CreateMma16x8x16F16F16Function(call_expr, gen_ctx,
                                                   resolved_args);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckGenericMMAFunction(call_expr, gen_ctx, resolved_args);
+        });
+
+    AddFunction(
+        "mma_16x8x16_bf16_f32",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateMma16x8x16BF16F32Function(call_expr, gen_ctx,
+                                                   resolved_args);
         },
         [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
                llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
@@ -1489,6 +1504,23 @@ mlir::Value NVVMIntrinsic::CreateMma16x8x16F16F16Function(
                         .fragments_a_count = 4,
                         .fragments_b_count = 2,
                         .fragments_c_count = 2,
+                        .fragment_size = 2};
+    return CreateGenericMMAFunction(call_expr, ctx, resolved_args, config);
+}
+
+mlir::Value NVVMIntrinsic::CreateMma16x8x16BF16F32Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    MMAConfig config = {.m = 16,
+                        .n = 8,
+                        .k = 16,
+                        .type_a = MMATypes::f16,
+                        .type_b = MMATypes::f32,
+                        .layout_a = MMALayout::row,
+                        .layout_b = MMALayout::col,
+                        .fragments_a_count = 4,
+                        .fragments_b_count = 2,
+                        .fragments_c_count = 4,
                         .fragment_size = 2};
     return CreateGenericMMAFunction(call_expr, ctx, resolved_args, config);
 }
