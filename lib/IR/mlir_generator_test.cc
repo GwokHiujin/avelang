@@ -1837,6 +1837,32 @@ def fp8_conversion_test(src: S.Tensor((2,), S.f32),
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMPackedBF16Math) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def packed_bf16_math_test(lhs: S.Tensor((1,), S.u32),
+                          rhs: S.Tensor((1,), S.u32),
+                          acc: S.Tensor((1,), S.u32),
+                          packed: S.Tensor((4,), S.u32),
+                          unpacked: S.Tensor((2,), S.f32)):
+    a = lhs[0]
+    b = rhs[0]
+    c = acc[0]
+    packed[0] = S.nvvm.bf16x2_add(a, b)
+    packed[1] = S.nvvm.bf16x2_sub(a, b)
+    packed[2] = S.nvvm.bf16x2_mul(a, b)
+    packed[3] = S.nvvm.bf16x2_fma(a, b, c)
+    values = S.nvvm.bf16x2_to_floatx2(a)
+    unpacked[0] = values[0]
+    unpacked[1] = values[1]
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMMBarrier) {
     static const std::string kSourceCode = R"""""(
 import avelang

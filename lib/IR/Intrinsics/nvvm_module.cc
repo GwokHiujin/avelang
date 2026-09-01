@@ -399,6 +399,13 @@ class NVVMIntrinsic : public NamedModule {
     mlir::Value CreateFloatX2ToBF16X2Function(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
+    mlir::Value CreateBF16X2ToFloatX2Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+    mlir::Value CreatePackedBF16MathFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args, size_t operandCount,
+        llvm::StringRef instruction) const;
 
     mlir::Value CreateF32MathFunction(ast::Call *call_expr,
                                       GeneratorContext *ctx,
@@ -1081,6 +1088,38 @@ void NVVMIntrinsic::Initialize() {
         },
         [](ast::Call *, GeneratorContext *,
            llvm::ArrayRef<mlir::Value>) -> bool { return true; });
+
+    AddFunction(
+        "bf16x2_to_floatx2",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateBF16X2ToFloatX2Function(call_expr, gen_ctx,
+                                                 resolved_args);
+        },
+        [](ast::Call *, GeneratorContext *,
+           llvm::ArrayRef<mlir::Value>) -> bool { return true; });
+
+    for (auto [name, operandCount, instruction] :
+         {std::tuple{"bf16x2_add", size_t{2},
+                     "add.rn.bf16x2 $0, $1, $2;"},
+          std::tuple{"bf16x2_sub", size_t{2},
+                     "sub.rn.bf16x2 $0, $1, $2;"},
+          std::tuple{"bf16x2_mul", size_t{2},
+                     "mul.rn.bf16x2 $0, $1, $2;"},
+          std::tuple{"bf16x2_fma", size_t{3},
+                     "fma.rn.bf16x2 $0, $1, $2, $3;"}}) {
+        AddFunction(
+            name,
+            [this, operandCount, instruction](
+                ast::Call *call_expr, GeneratorContext *gen_ctx,
+                llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+                return CreatePackedBF16MathFunction(
+                    call_expr, gen_ctx, resolved_args, operandCount,
+                    instruction);
+            },
+            [](ast::Call *, GeneratorContext *,
+               llvm::ArrayRef<mlir::Value>) -> bool { return true; });
+    }
 
     for (auto [name, binary, instruction] :
          {std::tuple{"fmax", true, "max.f32 $0, $1, $2;"},
@@ -2995,6 +3034,71 @@ mlir::Value NVVMIntrinsic::CreateFloatX2ToBF16X2Function(
     auto result = mlir::vector::ExtractOp::create(builder, location, bits, 0);
     SetTypeInfo(result, TypeInfo{true});
     return result;
+}
+
+mlir::Value NVVMIntrinsic::CreateBF16X2ToFloatX2Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    auto report = [&]() -> mlir::Value {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "bf16x2_to_floatx2 requires exactly one i32 operand";
+        return nullptr;
+    };
+    if (resolved_args.size() != 1 || !resolved_args[0] ||
+        !resolved_args[0].getType().isInteger(32)) {
+        return report();
+    }
+
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    auto i32x1 = mlir::VectorType::get({1}, builder.getI32Type());
+    auto packed = mlir::vector::FromElementsOp::create(
+        builder, location, i32x1, resolved_args);
+    auto bf16x2 = mlir::VectorType::get({2}, builder.getBF16Type());
+    auto values = mlir::vector::BitCastOp::create(builder, location, bf16x2,
+                                                  packed);
+    llvm::SmallVector<mlir::Value> converted;
+    for (int64_t i = 0; i < 2; ++i) {
+        auto value = mlir::vector::ExtractOp::create(builder, location, values,
+                                                      i);
+        converted.push_back(mlir::arith::ExtFOp::create(
+            builder, location, builder.getF32Type(), value,
+            mlir::arith::FastMathFlagsAttr{}));
+    }
+    return mlir::vector::FromElementsOp::create(
+        builder, location,
+        mlir::VectorType::get({2}, builder.getF32Type()), converted);
+}
+
+mlir::Value NVVMIntrinsic::CreatePackedBF16MathFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args, size_t operandCount,
+    llvm::StringRef instruction) const {
+    if (resolved_args.size() != operandCount ||
+        llvm::any_of(resolved_args, [](mlir::Value value) {
+            return !value || !value.getType().isInteger(32);
+        })) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << "packed BF16 math requires " << operandCount
+            << " i32 operands";
+        return nullptr;
+    }
+
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    std::string constraints = "=r";
+    for (size_t index = 0; index < operandCount; ++index) {
+        constraints += ",r";
+    }
+    auto inlineAsm = mlir::LLVM::InlineAsmOp::create(
+        builder, builder.getUnknownLoc(), builder.getI32Type(), resolved_args,
+        instruction, constraints, /*hasSideEffects=*/false,
+        /*isAlignStack=*/false,
+        mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+    SetTypeInfo(inlineAsm.getRes(), TypeInfo{true});
+    return inlineAsm.getRes();
 }
 
 mlir::Value NVVMIntrinsic::CreateF32MathFunction(
