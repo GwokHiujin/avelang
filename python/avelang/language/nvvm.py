@@ -311,6 +311,12 @@ def cp_async_ca_shared_global(
     pass
 
 
+def cp_async_cg_shared_global(
+    dst, src, dst_offset_bytes, src_offset_bytes, size_bytes: int
+):
+    pass
+
+
 def cp_async_commit_group():
     pass
 
