@@ -458,6 +458,18 @@ static const VectorTypePattern kNvvmMma16x8x16C[] = {
     {VectorElemKind::F16, 4},
 };
 
+static const VectorTypePattern kNvvmMma16x8x16BF16A[] = {
+    {VectorElemKind::I32, 4},
+    {VectorElemKind::BF16, 8},
+};
+static const VectorTypePattern kNvvmMma16x8x16BF16B[] = {
+    {VectorElemKind::I32, 2},
+    {VectorElemKind::BF16, 4},
+};
+static const VectorTypePattern kNvvmMma16x8x16F32C[] = {
+    {VectorElemKind::F32, 4},
+};
+
 static const VectorTypePattern kNvvmMma16x8x8A[] = {
     {VectorElemKind::I32, 2},
     {VectorElemKind::F16, 4},
@@ -471,6 +483,18 @@ static const VectorTypePattern kNvvmMma16x8x8C[] = {
 };
 
 static const NvvMmaSignature kNvvmMmaSignatures[] = {
+    {
+        "mma_16x8x16_bf16_f32",
+        llvm::ArrayRef(kNvvmMma16x8x16BF16A),
+        llvm::ArrayRef(kNvvmMma16x8x16BF16B),
+        llvm::ArrayRef(kNvvmMma16x8x16F32C),
+        VectorElemKind::I32,
+        4,
+        VectorElemKind::I32,
+        2,
+        VectorElemKind::F32,
+        4,
+    },
     {
         "mma_16x8x16_f16_f16",
         llvm::ArrayRef(kNvvmMma16x8x16A),
@@ -552,6 +576,47 @@ class NVVMMmaLowering : public mlir::OpRewritePattern<NVVMMMAOp> {
         auto aVec = prepareArg(a, aElemType, signature->aCount);
         auto bVec = prepareArg(b, bElemType, signature->bCount);
         auto cVec = prepareArg(c, cElemType, signature->cCount);
+
+        if (llvm::StringRef(signature->intrinsic) ==
+            "mma_16x8x16_bf16_f32") {
+            llvm::SmallVector<mlir::Type> resultElements(
+                4, rewriter.getF32Type());
+            auto structType = mlir::LLVM::LLVMStructType::getLiteral(
+                rewriter.getContext(), resultElements);
+            llvm::SmallVector<mlir::Value> operands;
+            for (int64_t i = 0; i < 4; ++i) {
+                operands.push_back(mlir::vector::ExtractOp::create(
+                    rewriter, op.getLoc(), aVec, i));
+            }
+            for (int64_t i = 0; i < 2; ++i) {
+                operands.push_back(mlir::vector::ExtractOp::create(
+                    rewriter, op.getLoc(), bVec, i));
+            }
+            for (int64_t i = 0; i < 4; ++i) {
+                operands.push_back(mlir::vector::ExtractOp::create(
+                    rewriter, op.getLoc(), cVec, i));
+            }
+            auto mma = mlir::LLVM::InlineAsmOp::create(
+                rewriter, op.getLoc(), structType, operands,
+                "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
+                "{$0, $1, $2, $3}, {$4, $5, $6, $7}, {$8, $9}, "
+                "{$10, $11, $12, $13};",
+                "=f,=f,=f,=f,r,r,r,r,r,r,0,1,2,3",
+                /*hasSideEffects=*/false, /*isAlignStack=*/false,
+                mlir::LLVM::tailcallkind::TailCallKind::None,
+                mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+            llvm::SmallVector<mlir::Value> results;
+            for (int64_t i = 0; i < 4; ++i) {
+                results.push_back(mlir::LLVM::ExtractValueOp::create(
+                    rewriter, op.getLoc(), rewriter.getF32Type(),
+                    mma.getRes(), llvm::ArrayRef<int64_t>{i}));
+            }
+            auto resultVector = mlir::vector::FromElementsOp::create(
+                rewriter, op.getLoc(),
+                mlir::VectorType::get(4, rewriter.getF32Type()), results);
+            rewriter.replaceOp(op, resultVector);
+            return mlir::success();
+        }
 
         auto funcName =
             ir::intrinsics::MakeIntrinsicFuncName("nvvm", signature->intrinsic);

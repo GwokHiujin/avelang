@@ -5,6 +5,10 @@ def mma_16x8x16_f16_f16(a, b, c):
     pass
 
 
+def mma_16x8x16_bf16_f32(a, b, c):
+    pass
+
+
 def mma_16x8x8_f16_f32(a, b, c):
     pass
 

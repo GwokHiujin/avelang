@@ -92,6 +92,21 @@ static const VectorTypePattern kNvvmMma16x8x16R[] = {
     {VectorElemKind::F16, 4},
 };
 
+static const VectorTypePattern kNvvmMma16x8x16BF16A[] = {
+    {VectorElemKind::I32, 4},
+    {VectorElemKind::BF16, 8},
+};
+static const VectorTypePattern kNvvmMma16x8x16BF16B[] = {
+    {VectorElemKind::I32, 2},
+    {VectorElemKind::BF16, 4},
+};
+static const VectorTypePattern kNvvmMma16x8x16F32C[] = {
+    {VectorElemKind::F32, 4},
+};
+static const VectorTypePattern kNvvmMma16x8x16F32R[] = {
+    {VectorElemKind::F32, 4},
+};
+
 static const VectorTypePattern kNvvmMma16x8x8A[] = {
     {VectorElemKind::I32, 2},
     {VectorElemKind::F16, 4},
@@ -108,6 +123,13 @@ static const VectorTypePattern kNvvmMma16x8x8R[] = {
 };
 
 static const NvvMmaSignature kNvvmMmaSignatures[] = {
+    {
+        "mma_16x8x16_bf16_f32",
+        llvm::ArrayRef(kNvvmMma16x8x16BF16A),
+        llvm::ArrayRef(kNvvmMma16x8x16BF16B),
+        llvm::ArrayRef(kNvvmMma16x8x16F32C),
+        llvm::ArrayRef(kNvvmMma16x8x16F32R),
+    },
     {
         "mma_16x8x16_f16_f16",
         llvm::ArrayRef(kNvvmMma16x8x16A),
@@ -428,7 +450,8 @@ mlir::LogicalResult NVVMMMAOp::verify() {
 
     return emitOpError(
         "operand types do not match any supported NVVM MMA signature; "
-        "supported: mma_16x8x16_f16_f16, mma_16x8x8_f16_f32");
+        "supported: mma_16x8x16_bf16_f32, mma_16x8x16_f16_f16, "
+        "mma_16x8x8_f16_f32");
 }
 
 //===----------------------------------------------------------------------===//
