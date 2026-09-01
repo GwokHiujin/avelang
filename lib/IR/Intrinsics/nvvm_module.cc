@@ -496,9 +496,9 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
-    mlir::Value CreateCpAsyncCaSharedGlobalFunction(
+    mlir::Value CreateCpAsyncSharedGlobalFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
-        llvm::ArrayRef<mlir::Value> resolved_args) const;
+        llvm::ArrayRef<mlir::Value> resolved_args, bool cacheAll) const;
 
     mlir::Value CreateCpAsyncCommitGroupFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
@@ -1280,18 +1280,24 @@ void NVVMIntrinsic::Initialize() {
                                                        resolved_args);
         });
 
-    AddFunction(
-        "cp_async_ca_shared_global",
-        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
-               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
-            return CreateCpAsyncCaSharedGlobalFunction(call_expr, gen_ctx,
-                                                       resolved_args);
-        },
-        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
-               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
-            return CheckCpAsyncCaSharedGlobalFunction(call_expr, gen_ctx,
-                                                      resolved_args);
-        });
+    for (auto [name, cacheAll] :
+         {std::pair{"cp_async_ca_shared_global", true},
+          std::pair{"cp_async_cg_shared_global", false}}) {
+        AddFunction(
+            name,
+            [this, cacheAll](ast::Call *call_expr,
+                             GeneratorContext *gen_ctx,
+                             llvm::ArrayRef<mlir::Value> resolved_args)
+                -> mlir::Value {
+                return CreateCpAsyncSharedGlobalFunction(
+                    call_expr, gen_ctx, resolved_args, cacheAll);
+            },
+            [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+                   llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+                return CheckCpAsyncCaSharedGlobalFunction(
+                    call_expr, gen_ctx, resolved_args);
+            });
+    }
 
     AddFunction(
         "cp_async_commit_group",
@@ -3885,9 +3891,9 @@ bool NVVMIntrinsic::CheckMBarrierArriveExpectTxFunction(
     return true;
 }
 
-mlir::Value NVVMIntrinsic::CreateCpAsyncCaSharedGlobalFunction(
+mlir::Value NVVMIntrinsic::CreateCpAsyncSharedGlobalFunction(
     ast::Call *call_expr, GeneratorContext *ctx,
-    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    llvm::ArrayRef<mlir::Value> resolved_args, bool cacheAll) const {
     auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
     auto location = builder.getUnknownLoc();
 
@@ -3941,7 +3947,9 @@ mlir::Value NVVMIntrinsic::CreateCpAsyncCaSharedGlobalFunction(
         builder, location, dstPtr.getResult(), srcPtr.getResult(),
         builder.getI32IntegerAttr(sizeBytes),
         mlir::NVVM::LoadCacheModifierKindAttr::get(
-            builder.getContext(), mlir::NVVM::LoadCacheModifierKind::CA),
+            builder.getContext(),
+            cacheAll ? mlir::NVVM::LoadCacheModifierKind::CA
+                     : mlir::NVVM::LoadCacheModifierKind::CG),
         mlir::Value());
 
     return ctx->GetCurrentFunctionGenerator()
