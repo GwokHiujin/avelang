@@ -215,6 +215,26 @@ def floatx2_to_bf16x2(value0, value1):
     pass
 
 
+def bf16x2_to_floatx2(value):
+    pass
+
+
+def bf16x2_add(lhs, rhs):
+    pass
+
+
+def bf16x2_sub(lhs, rhs):
+    pass
+
+
+def bf16x2_mul(lhs, rhs):
+    pass
+
+
+def bf16x2_fma(lhs, rhs, acc):
+    pass
+
+
 def fmax(value0, value1):
     pass
 
