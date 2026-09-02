@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark Avelang's fixed-shape Hopper KDA kernel."""
+"""Benchmark Avelang's Hopper KDA kernels."""
 
 import argparse
 import math
@@ -17,6 +17,7 @@ HEADS = 64
 DIM = 128
 CHUNK = 16
 LOWER_BOUND = -5.0
+VARLEN_SEQ_LENS = (1300, 547, 2048, 963, 271, 3063)
 
 
 @dataclass
@@ -34,8 +35,15 @@ class PoolEntry:
 class RandomPool:
     """Preallocate independent inputs for full-forward timing."""
 
-    def __init__(self, pool_size, seed, device):
+    def __init__(self, pool_size, seed, device, varlen):
         self.scale = 1.0 / math.sqrt(DIM)
+        self.seq_lens = VARLEN_SEQ_LENS if varlen else (SEQUENCE,)
+        self.cu_seqlens = None
+        if varlen:
+            cumulative = [0]
+            for length in self.seq_lens:
+                cumulative.append(cumulative[-1] + length)
+            self.cu_seqlens = torch.tensor(cumulative, dtype=torch.int64, device=device)
         self.entries = []
         for i in range(pool_size):
             gen = torch.Generator(device=device)
@@ -70,15 +78,35 @@ class RandomPool:
                 raise RuntimeError(f"random pool reuses storage for {field}")
 
 
-def _ensure_hopper_available():
+def _select_hopper(device=None):
     if not torch.cuda.is_available() or torch.version.hip is not None:
         raise RuntimeError("NVIDIA CUDA is required")
-    major, minor = torch.cuda.get_device_capability()
+    if device is None:
+        device = next(
+            (
+                torch.device(f"cuda:{index}")
+                for index in range(torch.cuda.device_count())
+                if torch.cuda.get_device_capability(index)[0] >= 9
+            ),
+            None,
+        )
+        if device is None:
+            raise RuntimeError("No Hopper-or-newer CUDA device is available")
+    else:
+        device = torch.device(device)
+    if device.type != "cuda":
+        raise ValueError(f"--device must select CUDA, got {device}")
+    torch.cuda.set_device(device)
+    major, minor = torch.cuda.get_device_capability(device)
     if major < 9:
         raise RuntimeError(f"KDA benchmark requires Hopper or newer, got {major}.{minor}")
+    return device
 
 
 def _call(module_fwd, pool, entry):
+    kwargs = {}
+    if pool.cu_seqlens is not None:
+        kwargs["cu_seqlens"] = pool.cu_seqlens
     module_fwd(
         entry.q,
         entry.k,
@@ -92,6 +120,7 @@ def _call(module_fwd, pool, entry):
         lower_bound=LOWER_BOUND,
         initial_state=None,
         final_state=None,
+        **kwargs,
     )
 
 
@@ -159,14 +188,16 @@ def _validate_first_tile(pool):
     print(f"validation=max_abs_diff:{max_abs:.6f}")
 
 
-def run_kda_benchmark(pool_size, warmup, iters, repeats, seed, validate):
+def run_kda_benchmark(
+    pool_size, warmup, iters, repeats, seed, validate, varlen, device=None
+):
     if pool_size < 2:
         raise ValueError("pool_size must be at least 2 for random-pool benchmarking")
-    _ensure_hopper_available()
-    pool = RandomPool(pool_size, seed, torch.device("cuda"))
+    device = _select_hopper(device)
+    pool = RandomPool(pool_size, seed, device, varlen)
     result = _bench(avelang_fwd, pool, warmup, iters, repeats)
     print(
-        f"B={BATCH} T={SEQUENCE} H={HEADS} D={DIM} "
+        f"B={BATCH} T={SEQUENCE} H={HEADS} D={DIM} seq_lens={pool.seq_lens} "
         f"pool_size={pool_size} mean_ms={result['mean_ms']:.4f} "
         f"median_ms={result['median_ms']:.4f} "
         f"min_ms={result['min_ms']:.4f} max_ms={result['max_ms']:.4f}"
@@ -176,13 +207,18 @@ def run_kda_benchmark(pool_size, warmup, iters, repeats, seed, validate):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="NVIDIA Hopper BF16 fixed-shape KDA benchmark")
+    parser = argparse.ArgumentParser(description="NVIDIA Hopper BF16 KDA benchmark")
     parser.add_argument("--pool-size", type=int, default=8)
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--iters", type=int, default=100)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--validate", action="store_true", default=False)
+    parser.add_argument("--varlen", action="store_true", default=False)
+    parser.add_argument(
+        "--device",
+        help="CUDA device (for example cuda:2); defaults to the first Hopper device",
+    )
     args = parser.parse_args()
 
     run_kda_benchmark(
@@ -192,6 +228,8 @@ def main():
         args.repeats,
         args.seed,
         args.validate,
+        args.varlen,
+        args.device,
     )
 
 
