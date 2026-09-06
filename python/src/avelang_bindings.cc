@@ -150,10 +150,14 @@ static std::optional<std::string> GetTMADataType(mlir::Type type,
     if (type.isInteger()) {
         unsigned width = type.getIntOrFloatBitWidth();
         bool isUnsigned = typeInfo.is_unsigned_integer.value_or(false);
-        if (isUnsigned && width == 8) {
+        // CUDA tensor maps describe the storage width for 8- and 16-bit
+        // integers and only expose unsigned enum names for those widths. TMA
+        // copies the raw bits, so signed and unsigned AveLang tensors use the
+        // same CUDA tensor-map data type.
+        if (width == 8) {
             return "CU_TENSOR_MAP_DATA_TYPE_UINT8";
         }
-        if (isUnsigned && width == 16) {
+        if (width == 16) {
             return "CU_TENSOR_MAP_DATA_TYPE_UINT16";
         }
         if (isUnsigned && width == 32) {

@@ -138,6 +138,64 @@ def kernel_pointer_u8_tma_with_direct_pointer_load(
     out[row, column] = S.convert(shared[row, column], S.f32) * scale[tid]
 
 
+@avelang.jit
+def kernel_signed_i8_tma_load(
+    tensor: S.Tensor((16, 16), S.i8),
+    out: S.Tensor((16, 16), S.i8),
+):
+    tid = S.thread_id(0)
+    row = tid // 16
+    column = tid % 16
+    shared = S.make_shared((16, 16), S.i8, 128)
+    descriptor = S.nvvm.make_tma_descriptor(
+        tensor, S.make_layout((16, 16), (16, 1))
+    )
+    barrier = S.nvvm.mbarrier_create()
+
+    S.nvvm.mbarrier_init(barrier, 0, count=1, predicate=tid == 0)
+    S.syncthreads()
+    S.nvvm.tma_load(
+        shared,
+        descriptor,
+        (0, 0),
+        barrier,
+        mbar_id=0,
+        predicate=tid == 0,
+    )
+    S.nvvm.mbarrier_try_wait_parity(barrier, 0, 10000000, 0)
+    S.syncthreads()
+    out[row, column] = shared[row, column]
+
+
+@avelang.jit
+def kernel_signed_i16_tma_load(
+    tensor: S.Tensor((16, 16), S.i16),
+    out: S.Tensor((16, 16), S.i16),
+):
+    tid = S.thread_id(0)
+    row = tid // 16
+    column = tid % 16
+    shared = S.make_shared((16, 16), S.i16, 128)
+    descriptor = S.nvvm.make_tma_descriptor(
+        tensor, S.make_layout((16, 16), (16, 1))
+    )
+    barrier = S.nvvm.mbarrier_create()
+
+    S.nvvm.mbarrier_init(barrier, 0, count=1, predicate=tid == 0)
+    S.syncthreads()
+    S.nvvm.tma_load(
+        shared,
+        descriptor,
+        (0, 0),
+        barrier,
+        mbar_id=0,
+        predicate=tid == 0,
+    )
+    S.nvvm.mbarrier_try_wait_parity(barrier, 0, 10000000, 0)
+    S.syncthreads()
+    out[row, column] = shared[row, column]
+
+
 @unittest.skipUnless(
     get_tma_device() is not None,
     "Requires CUDA on an NVIDIA Hopper-or-newer GPU with TMA support.",
@@ -170,6 +228,22 @@ class TestNVVMTMAOps(unittest.TestCase):
                 f"Expected:\n{expected}\nActual:\n{actual}"
             ),
         )
+
+    def test_signed_narrow_tma_loads_emit_launcher_metadata(self):
+        for dtype, kernel in (
+            (torch.int8, kernel_signed_i8_tma_load),
+            (torch.int16, kernel_signed_i16_tma_load),
+        ):
+            with self.subTest(dtype=dtype):
+                tensor = torch.arange(
+                    -128, 128, dtype=dtype, device=self.device
+                ).reshape(16, 16)
+                out = torch.zeros_like(tensor)
+
+                kernel[lambda: ((1, 1, 1), (256, 1, 1))](tensor, out)
+                torch.cuda.synchronize(self.device)
+
+                self.assertTrue(torch.equal(out, tensor))
 
     def test_async_proxy_fence_before_tma_store(self):
         out = torch.zeros((32, 32), dtype=torch.float16, device=self.device)
