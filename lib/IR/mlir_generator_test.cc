@@ -1458,6 +1458,40 @@ def tma_descriptor_test(global_mem: S.Tensor((16, 16), S.f32)):
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, RejectNVVMTMADescriptorLowerRankLayout) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def tma_descriptor_test(global_mem: S.Tensor((16, 16), S.f32)):
+    smem_layout = S.make_layout((256,), (1,))
+    desc = S.nvvm.make_tma_descriptor(global_mem, smem_layout)
+)""""";
+
+    RunMLIRGenerationErrorTest(
+        kSourceCode,
+        "make_tma_descriptor smem_layout rank must match tensor rank; got "
+        "layout rank 1 and tensor rank 2");
+}
+
+TEST_F(MLIRGeneratorTest, RejectNVVMTMADescriptorHigherRankLayout) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def tma_descriptor_test(global_mem: S.Tensor((16, 16), S.f32)):
+    smem_layout = S.make_layout((1, 16, 16), (256, 16, 1))
+    desc = S.nvvm.make_tma_descriptor(global_mem, smem_layout)
+)""""";
+
+    RunMLIRGenerationErrorTest(
+        kSourceCode,
+        "make_tma_descriptor smem_layout rank must match tensor rank; got "
+        "layout rank 3 and tensor rank 2");
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRNVVMTmaFence) {
     static const std::string kSourceCode = R"""""(
 import avelang

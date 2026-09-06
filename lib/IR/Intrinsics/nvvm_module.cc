@@ -4785,6 +4785,17 @@ bool NVVMIntrinsic::CheckMakeTMADescriptorFunction(
             << "make_tma_descriptor requires a static smem_layout";
         return false;
     }
+    if (smemDims.size() != static_cast<size_t>(tensorType.getRank())) {
+        std::string message =
+            "make_tma_descriptor smem_layout rank must match tensor rank; "
+            "got layout rank " +
+            std::to_string(smemDims.size()) + " and tensor rank " +
+            std::to_string(tensorType.getRank());
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << message;
+        return false;
+    }
 
     mlir::Value swizzleValue;
     if (positionalCount > 2) {
