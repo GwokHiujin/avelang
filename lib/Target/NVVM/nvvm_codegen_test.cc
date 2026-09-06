@@ -51,6 +51,17 @@ module {
   }
 })";
 
+static std::string getTMADescriptorMLIRCode(llvm::StringRef elementType) {
+    std::string result = kTMADescriptorMLIRCode;
+    std::string replacement = elementType.str();
+    size_t offset = 0;
+    while ((offset = result.find("f32", offset)) != std::string::npos) {
+        result.replace(offset, 3, replacement);
+        offset += replacement.size();
+    }
+    return result;
+}
+
 class NVVMCodegenTest : public ::testing::Test {
   protected:
     void SetUp() override {
@@ -135,6 +146,30 @@ TEST_F(NVVMCodegenTest, CollectsTMADescriptorKernelMetadata) {
     EXPECT_EQ((*globalStrides)[0].getAsInteger(), 64);
     EXPECT_EQ((*boxDims)[0].getAsInteger(), 16);
     EXPECT_EQ((*boxDims)[1].getAsInteger(), 16);
+}
+
+TEST_F(NVVMCodegenTest, CollectsSignedI8AndI16TMADescriptorMetadata) {
+    auto checkMetadata = [&](llvm::StringRef elementType,
+                             llvm::StringRef expectedDataType,
+                             int64_t expectedGlobalStride) {
+        ParseMLIRString(getTMADescriptorMLIRCode(elementType));
+
+        auto metadata = backend->getKernelMetadata(*module);
+        auto *specs = metadata.getArray("tma_descriptor_specs");
+        ASSERT_NE(specs, nullptr);
+        ASSERT_EQ(specs->size(), 1u);
+
+        auto *spec = (*specs)[0].getAsObject();
+        ASSERT_NE(spec, nullptr);
+        EXPECT_EQ(spec->getString("dtype"), expectedDataType);
+        auto *globalStrides = spec->getArray("global_strides");
+        ASSERT_NE(globalStrides, nullptr);
+        ASSERT_EQ(globalStrides->size(), 1u);
+        EXPECT_EQ((*globalStrides)[0].getAsInteger(), expectedGlobalStride);
+    };
+
+    checkMetadata("i8", "CU_TENSOR_MAP_DATA_TYPE_UINT8", 16);
+    checkMetadata("i16", "CU_TENSOR_MAP_DATA_TYPE_UINT16", 32);
 }
 
 TEST_F(NVVMCodegenTest, ExecuteAxpyOnGPU) {
