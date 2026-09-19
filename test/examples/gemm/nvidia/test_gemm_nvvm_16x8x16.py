@@ -164,7 +164,7 @@ class TestGEMM(unittest.TestCase):
         )
 
     def test_gemm_bf16_f32_accumulator(self):
-        """Test the BF16 m16n8k16 MMA shape used by KDA."""
+        """Test the BF16 m16n8k16 MMA instruction shape."""
         A = torch.randn((16, 16), dtype=torch.bfloat16, device="cuda")
         B = torch.randn((16, 8), dtype=torch.bfloat16, device="cuda")
         C = torch.empty((16, 8), dtype=torch.float32, device="cuda")
