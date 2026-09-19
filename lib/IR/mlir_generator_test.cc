@@ -1702,8 +1702,9 @@ def nvvm_fma_test(dst: S.Tensor((1,), S.f32)):
     c = S.convert(4.0, S.f32)
     precise = S.nvvm.fma(a, b, c)
     maximum = S.nvvm.fast_fmax(a, b)
+    inverse_square_root = S.nvvm.fast_rsqrt(c)
     reciprocal = S.nvvm.fast_rcp(c)
-    dst[0] = precise + S.nvvm.fast_fma(maximum, reciprocal, c)
+    dst[0] = precise + inverse_square_root + S.nvvm.fast_fma(maximum, reciprocal, c)
 )""""";
 
     RunMLIRGenerationTest(kSourceCode);

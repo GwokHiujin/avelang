@@ -1126,6 +1126,7 @@ void NVVMIntrinsic::Initialize() {
           std::tuple{"fast_fmax", true, "max.ftz.f32 $0, $1, $2;"},
           std::tuple{"fast_exp2", false, "ex2.approx.ftz.f32 $0, $1;"},
           std::tuple{"fast_tanh", false, "tanh.approx.f32 $0, $1;"},
+          std::tuple{"fast_rsqrt", false, "rsqrt.approx.ftz.f32 $0, $1;"},
           std::tuple{"fast_rcp", false, "rcp.approx.ftz.f32 $0, $1;"}}) {
         AddFunction(
             name,

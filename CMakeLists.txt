@@ -138,7 +138,7 @@ else()
 endif()
 
 include_directories(include lib)
-include_directories(${LLVM_INCLUDE_DIRS} ${CLANG_INCLUDE_DIRS})
+include_directories(${LLVM_INCLUDE_DIRS} ${MLIR_INCLUDE_DIRS} ${CLANG_INCLUDE_DIRS})
 
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/include/avelang)
 configure_file(

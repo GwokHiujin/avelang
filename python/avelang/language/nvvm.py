@@ -251,6 +251,10 @@ def fast_tanh(value):
     pass
 
 
+def fast_rsqrt(value):
+    pass
+
+
 def fast_rcp(value):
     pass
 
