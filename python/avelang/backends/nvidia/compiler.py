@@ -6,6 +6,7 @@ from ...compiler.code_generator import compile_to_binary
 
 @dataclass(frozen=True)
 class NvidiaCompilerOptions:
+    opt_level: int = 2
     num_warps: int = -1
     min_ctas: int = 1
     fast_math: bool = False
@@ -24,6 +25,8 @@ class NvidiaCompiler(BaseBackend):
             return options
 
         args = {}
+        if "opt_level" in options and options["opt_level"] is not None:
+            args["opt_level"] = options["opt_level"]
         if "num_warps" in options and options["num_warps"] is not None:
             args["num_warps"] = options["num_warps"]
         if "min_ctas" in options and options["min_ctas"] is not None:
@@ -39,4 +42,4 @@ class NvidiaCompiler(BaseBackend):
             options = self.parse_options({})
         elif isinstance(options, dict):
             options = self.parse_options(options)
-        return compile_to_binary(src, target, opt_level=2, options=options)
+        return compile_to_binary(src, target, opt_level=options.opt_level, options=options)
