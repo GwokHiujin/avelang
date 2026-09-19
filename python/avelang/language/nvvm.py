@@ -247,6 +247,10 @@ def fast_exp2(value):
     pass
 
 
+def fast_log2(value):
+    pass
+
+
 def fast_tanh(value):
     pass
 
