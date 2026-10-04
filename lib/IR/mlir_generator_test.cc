@@ -699,6 +699,43 @@ def kernel(out: S.Tensor((2,), S.u32)):
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateConstexprBranchInsideForLoop) {
+    static const std::string kSourceCode = R""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def kernel(out: S.Tensor((4,), S.i32), flag: S.constexpr):
+    for i in S.range(2):
+        if flag:
+            out[i * 2] = 11
+            out[i * 2 + 1] = 12
+)"""";
+
+    ast::ASTNode *root;
+    TryParse(kSourceCode, &root);
+    ASSERT_NE(root, nullptr);
+
+    auto ir_context = ir::IRContext::Create();
+    ir::MLIRGenerator generator(ir_context.get(), diagnostics_);
+    auto module = generator.CreateModule();
+
+    mlir::OpBuilder builder(ir_context->GetMLIRContext());
+    builder.setInsertionPointToStart(module.getBody());
+    auto flag = mlir::arith::ConstantOp::create(
+        builder, builder.getUnknownLoc(), builder.getBoolAttr(true));
+    generator.GetSymbolTable()->GetCurrentFrame().AddValue(
+        "flag", flag, /*immutable=*/true);
+
+    module = generator.Generate(root);
+    ASSERT_TRUE(module);
+    ASSERT_TRUE(mlir::succeeded(mlir::verify(module)));
+
+    size_t store_count = 0;
+    module.walk([&](cf::AveLangMemRefStoreOp) { ++store_count; });
+    EXPECT_EQ(store_count, 2u);
+}
+
 TEST_F(MLIRGeneratorTest, SpecializeJitFunctionByAddressSpace) {
     static const std::string kSourceCode = R"""""(
 import avelang
