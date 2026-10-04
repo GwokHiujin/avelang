@@ -56,6 +56,18 @@ static bool ExtractTupleElements(mlir::Value value,
     return false;
 }
 
+static bool IsInsertionPointTerminated(mlir::OpBuilder &builder) {
+    auto *block = builder.getInsertionBlock();
+    if (!block || builder.getInsertionPoint() == block->begin()) {
+        return false;
+    }
+
+    auto insertion_point = builder.getInsertionPoint();
+    auto *previous_op = &*--insertion_point;
+    return llvm::isa<cf::ReturnOp>(previous_op) ||
+           previous_op->mightHaveTrait<mlir::OpTrait::IsTerminator>();
+}
+
 static bool
 CanImplicitlyDemoteConstantWithoutPrecisionLoss(mlir::Value value,
                                                 mlir::Type targetType) {
@@ -376,8 +388,7 @@ void FunctionGenerator::Generate(ast::FunctionDef *func) {
 
     for (auto *stmt : func->GetBody()) {
         DispatchStmt(stmt);
-        auto *block = builder_.getInsertionBlock();
-        if (block && block->mightHaveTerminator()) {
+        if (IsInsertionPointTerminated(builder_)) {
             break;
         }
     }
@@ -1309,8 +1320,7 @@ void FunctionGenerator::VisitIf(ast::If *if_stmt) {
             *folded ? if_stmt->GetBody() : if_stmt->GetOrelse();
         for (auto *stmt : body) {
             DispatchStmt(stmt);
-            auto *block = builder_.getInsertionBlock(); 
-            if (block && block->mightHaveTerminator()) {
+            if (IsInsertionPointTerminated(builder_)) {
                 break;
             }
         }
