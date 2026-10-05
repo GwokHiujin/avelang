@@ -68,9 +68,11 @@ constexpr llvm::StringRef kNvvmIntrinsicLibraryTag =
     "embedded:nvvm_intrinsics.mlirbc";
 
 static void emitInlinePtxVoid(mlir::OpBuilder &builder, mlir::Location loc,
-                              llvm::StringRef asmString) {
+                              llvm::StringRef asmString,
+                              llvm::StringRef constraints = "") {
     mlir::LLVM::InlineAsmOp::create(
-        builder, loc, mlir::TypeRange{}, mlir::ValueRange{}, asmString, "",
+        builder, loc, mlir::TypeRange{}, mlir::ValueRange{}, asmString,
+        constraints,
         /*hasSideEffects=*/true, /*isAlignStack=*/false,
         mlir::LLVM::tailcallkind::TailCallKind::None,
         mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
@@ -313,6 +315,22 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
+    mlir::Value CreateOpaqueI32Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckOpaqueI32Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    mlir::Value CreateLdMatrixKDAFactorsFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckLdMatrixKDAFactorsFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
     mlir::Value CreateWgmmaFenceAlignedFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
@@ -378,9 +396,29 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args, int64_t n) const;
 
-    mlir::Value CreateWgmmaM64N128K16F32BF16BF16RSFunction(
+    mlir::Value CreateWgmmaM64NK16F32BF16BF16RSFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args, int64_t n) const;
+
+    mlir::Value CreateWgmmaM64N16K16F32BF16BF16RSX8Function(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    mlir::Value CreateWgmmaM64N16K16F32BF16BF16RSSmemX8Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    mlir::Value CreateWgmmaM64N16K16F32BF16BF16RSF32X8Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    mlir::Value CreateWgmmaM64N16M64N64X2K16F32BF16BF16RSBranchFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    mlir::Value CreateWgmmaM64NK16F32BF16BF16RSPredicatedFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args, int64_t n) const;
 
     mlir::Value CreateWgmmaM64N128K128F32BF16BF16Function(
         ast::Call *call_expr, GeneratorContext *ctx,
@@ -418,9 +456,31 @@ class NVVMIntrinsic : public NamedModule {
                          llvm::ArrayRef<mlir::Value> resolved_args,
                          bool fast) const;
 
-    bool CheckWgmmaM64N128K16F32BF16BF16RSFunction(
+    bool CheckWgmmaM64NK16F32BF16BF16RSFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args, int64_t n,
+        llvm::StringRef name) const;
+
+    bool CheckWgmmaM64N16K16F32BF16BF16RSX8Function(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckWgmmaM64N16K16F32BF16BF16RSSmemX8Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckWgmmaM64N16K16F32BF16BF16RSF32X8Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckWgmmaM64N16M64N64X2K16F32BF16BF16RSBranchFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckWgmmaM64NK16F32BF16BF16RSPredicatedFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args, int64_t n,
+        llvm::StringRef name) const;
 
     bool CheckWgmmaM64N128K128F32BF16BF16Function(
         ast::Call *call_expr, GeneratorContext *ctx,
@@ -513,6 +573,22 @@ class NVVMIntrinsic : public NamedModule {
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
     mlir::Value CreateStoreGlobalV4U32Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    mlir::Value CreateLoadSharedV4U32Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    mlir::Value CreateCopySharedToGlobalV4U32Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    mlir::Value CreateDrainKDAOutputFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    mlir::Value CreateStoreKDAFactorBlockFunction(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
@@ -661,6 +737,22 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
+    bool CheckLoadSharedV4U32Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckCopySharedToGlobalV4U32Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckDrainKDAOutputFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckStoreKDAFactorBlockFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
     bool CheckCpAsyncBulkFunction(ast::Call *call_expr, GeneratorContext *ctx,
                                   llvm::ArrayRef<mlir::Value> resolved_args,
                                   CpAsyncBulkIntrinsicKind kind) const;
@@ -735,6 +827,19 @@ void NVVMIntrinsic::Initialize() {
     }
 
     AddFunction(
+        "ldmatrix_m8n8_x4_b16_kda_factors",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateLdMatrixKDAFactorsFunction(call_expr, gen_ctx,
+                                                    resolved_args);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckLdMatrixKDAFactorsFunction(call_expr, gen_ctx,
+                                                   resolved_args);
+        });
+
+    AddFunction(
         "shared_address",
         [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
                llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
@@ -743,6 +848,17 @@ void NVVMIntrinsic::Initialize() {
         },
         [](ast::Call *, GeneratorContext *,
            llvm::ArrayRef<mlir::Value>) -> bool { return true; });
+
+    AddFunction(
+        "opaque_i32",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateOpaqueI32Function(call_expr, gen_ctx, resolved_args);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckOpaqueI32Function(call_expr, gen_ctx, resolved_args);
+        });
 
     for (int num : {1, 2, 4}) {
         std::string base_name =
@@ -1013,17 +1129,48 @@ void NVVMIntrinsic::Initialize() {
             });
     }
 
+    for (int64_t n : {16, 64, 128}) {
+        std::string name =
+            "wgmma_m64n" + std::to_string(n) + "k16_f32_bf16_bf16_rs";
+        AddFunction(
+            name,
+            [this, n](ast::Call *call_expr, GeneratorContext *gen_ctx,
+                      llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+                return CreateWgmmaM64NK16F32BF16BF16RSFunction(
+                    call_expr, gen_ctx, resolved_args, n);
+            },
+            [this, n, name](
+                ast::Call *call_expr, GeneratorContext *gen_ctx,
+                llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+                return CheckWgmmaM64NK16F32BF16BF16RSFunction(
+                    call_expr, gen_ctx, resolved_args, n, name);
+            });
+    }
+
     AddFunction(
-        "wgmma_m64n128k16_f32_bf16_bf16_rs",
+        "wgmma_m64n16k16_f32_bf16_bf16_rs_smem_x8",
         [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
                llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
-            return CreateWgmmaM64N128K16F32BF16BF16RSFunction(
+            return CreateWgmmaM64N16K16F32BF16BF16RSSmemX8Function(
                 call_expr, gen_ctx, resolved_args);
         },
         [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
                llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
-            return CheckWgmmaM64N128K16F32BF16BF16RSFunction(call_expr, gen_ctx,
-                                                             resolved_args);
+            return CheckWgmmaM64N16K16F32BF16BF16RSSmemX8Function(
+                call_expr, gen_ctx, resolved_args);
+        });
+
+    AddFunction(
+        "wgmma_m64n16x2_m64n64x4_k16_f32_bf16_bf16_rs_branch",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateWgmmaM64N16M64N64X2K16F32BF16BF16RSBranchFunction(
+                call_expr, gen_ctx, resolved_args);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckWgmmaM64N16M64N64X2K16F32BF16BF16RSBranchFunction(
+                call_expr, gen_ctx, resolved_args);
         });
 
     for (auto [name, registerShared, n, k] :
@@ -1438,6 +1585,19 @@ void NVVMIntrinsic::Initialize() {
         });
 
     AddFunction(
+        "drain_kda_output",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateDrainKDAOutputFunction(call_expr, gen_ctx,
+                                                resolved_args);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckDrainKDAOutputFunction(call_expr, gen_ctx,
+                                               resolved_args);
+        });
+
+    AddFunction(
         "atomic_add",
         [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
                llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
@@ -1736,6 +1896,102 @@ mlir::Value NVVMIntrinsic::CreateLdMatrixWithShape(
     return ld_matrix_op.getResult();
 }
 
+bool NVVMIntrinsic::CheckLdMatrixKDAFactorsFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    bool valid = resolved_args.size() == 5 &&
+                 llvm::all_of(resolved_args, [](mlir::Value value) {
+                     return value && value.getType().isInteger(32);
+                 });
+    if (!valid) {
+        ctx->diagnostic_manager->Report(
+            basic::DiagnosticCode::kUnimplemented,
+            call_expr->GetSourceRange().getBegin())
+            << "ldmatrix_m8n8_x4_b16_kda_factors requires five i32 arguments";
+    }
+    return valid;
+}
+
+mlir::Value NVVMIntrinsic::CreateLdMatrixKDAFactorsFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (!CheckLdMatrixKDAFactorsFunction(call_expr, ctx, resolved_args)) {
+        return nullptr;
+    }
+    constexpr int64_t kOutputs = 20;
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    llvm::SmallVector<mlir::Type> elementTypes(kOutputs,
+                                               builder.getI32Type());
+    auto structType = mlir::LLVM::LLVMStructType::getLiteral(
+        builder.getContext(), elementTypes);
+    auto outputList = [](int64_t begin) {
+        std::string result = "{";
+        for (int64_t index = 0; index < 4; ++index) {
+            if (index != 0)
+                result += ", ";
+            result += "$" + std::to_string(begin + index);
+        }
+        return result + "}";
+    };
+    constexpr int64_t kBase = kOutputs;
+    constexpr int64_t kStage = kBase + 1;
+    constexpr int64_t kRow = kStage + 1;
+    constexpr int64_t kCol = kRow + 1;
+    constexpr int64_t kWarp = kCol + 1;
+    std::string asmString =
+        "{ .reg .b32 c, rowa, waddr, vaddr, tmp;\n"
+        "shl.b32 c, $" + std::to_string(kCol) + ", 1;\n"
+        "mad.lo.u32 tmp, $" + std::to_string(kRow) + ", 48, c;\n"
+        "add.u32 tmp, tmp, $" + std::to_string(kBase) + ";\n"
+        "add.u32 tmp, tmp, 93056;\n"
+        "ldmatrix.sync.aligned.m8n8.x4.shared.b16 " + outputList(0) +
+        ", [tmp];\n"
+        "mad.lo.u32 rowa, $" + std::to_string(kRow) + ", 272, c;\n"
+        "shl.b32 tmp, $" + std::to_string(kWarp) + ", 6;\n"
+        "add.u32 rowa, rowa, tmp;\n"
+        "add.u32 waddr, rowa, $" + std::to_string(kBase) + ";\n"
+        "add.u32 waddr, waddr, 77440;\n"
+        "mad.lo.u32 vaddr, $" + std::to_string(kStage) +
+        ", 4352, rowa;\n"
+        "add.u32 vaddr, vaddr, $" + std::to_string(kBase) + ";\n"
+        "add.u32 vaddr, vaddr, 68608;\n"
+        "ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 " + outputList(4) +
+        ", [waddr];\n"
+        "ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 " + outputList(8) +
+        ", [vaddr];\n"
+        "add.u32 waddr, waddr, 32;\n"
+        "add.u32 vaddr, vaddr, 32;\n"
+        "ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 " + outputList(12) +
+        ", [waddr];\n"
+        "ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 " + outputList(16) +
+        ", [vaddr];\n}";
+    llvm::SmallVector<std::string> constraints(kOutputs, "=r");
+    constraints.insert(constraints.end(), 5, "r");
+    constraints.push_back("~{memory}");
+    std::string constraintString;
+    for (size_t index = 0; index < constraints.size(); ++index) {
+        if (index != 0)
+            constraintString += ",";
+        constraintString += constraints[index];
+    }
+    auto inlineAsm = mlir::LLVM::InlineAsmOp::create(
+        builder, location, structType, resolved_args, asmString,
+        constraintString, /*hasSideEffects=*/true, /*isAlignStack=*/false,
+        mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+    llvm::SmallVector<mlir::Value> elements;
+    elements.reserve(kOutputs);
+    for (int64_t index = 0; index < kOutputs; ++index) {
+        elements.push_back(mlir::LLVM::ExtractValueOp::create(
+            builder, location, builder.getI32Type(), inlineAsm.getRes(),
+            llvm::ArrayRef<int64_t>{index}));
+    }
+    return mlir::vector::FromElementsOp::create(
+        builder, location,
+        mlir::VectorType::get({kOutputs}, builder.getI32Type()), elements);
+}
+
 mlir::Value NVVMIntrinsic::CreateSharedAddressFunction(
     ast::Call *call_expr, GeneratorContext *ctx,
     llvm::ArrayRef<mlir::Value> resolved_args) const {
@@ -1760,6 +2016,38 @@ mlir::Value NVVMIntrinsic::CreateSharedAddressFunction(
         builder, location, builder.getIndexType(), resolved_args[0]);
     return mlir::arith::IndexCastOp::create(
         builder, location, builder.getI32Type(), address.getResult());
+}
+
+bool NVVMIntrinsic::CheckOpaqueI32Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    bool valid = resolved_args.size() == 1 && resolved_args[0] &&
+                 resolved_args[0].getType().isInteger(32);
+    if (!valid) {
+        ctx->diagnostic_manager->Report(
+            basic::DiagnosticCode::kUnimplemented,
+            call_expr->GetSourceRange().getBegin())
+            << "opaque_i32 requires one i32 argument";
+    }
+    return valid;
+}
+
+mlir::Value NVVMIntrinsic::CreateOpaqueI32Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (!CheckOpaqueI32Function(call_expr, ctx, resolved_args)) {
+        return nullptr;
+    }
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    auto inlineAsm = mlir::LLVM::InlineAsmOp::create(
+        builder, location, builder.getI32Type(),
+        mlir::ValueRange{resolved_args[0]}, "mov.u32 $0, $1;",
+        "=r,r,~{memory}", /*hasSideEffects=*/true,
+        /*isAlignStack=*/false,
+        mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+    return inlineAsm.getRes();
 }
 
 mlir::Value NVVMIntrinsic::CreateStMatrixWithShape(
@@ -1980,7 +2268,8 @@ mlir::Value NVVMIntrinsic::CreateWgmmaFenceAlignedFunction(
     auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
     auto location = builder.getUnknownLoc();
 
-    emitInlinePtxVoid(builder, location, "wgmma.fence.sync.aligned;");
+    emitInlinePtxVoid(builder, location, "wgmma.fence.sync.aligned;",
+                      "~{memory}");
     return ctx->GetCurrentFunctionGenerator()
         ->GetExprGenerator()
         ->CreateVoidValue();
@@ -2005,7 +2294,8 @@ mlir::Value NVVMIntrinsic::CreateWgmmaGroupSyncAlignedFunction(
     auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
     auto location = builder.getUnknownLoc();
 
-    emitInlinePtxVoid(builder, location, "wgmma.commit_group.sync.aligned;");
+    emitInlinePtxVoid(builder, location, "wgmma.commit_group.sync.aligned;",
+                      "~{memory}");
     return ctx->GetCurrentFunctionGenerator()
         ->GetExprGenerator()
         ->CreateVoidValue();
@@ -2041,7 +2331,7 @@ mlir::Value NVVMIntrinsic::CreateWgmmaWaitGroupSyncFunction(
 
     std::string asmString =
         "wgmma.wait_group.sync.aligned " + std::to_string(*groupValue) + ";";
-    emitInlinePtxVoid(builder, location, asmString);
+    emitInlinePtxVoid(builder, location, asmString, "~{memory}");
     return ctx->GetCurrentFunctionGenerator()
         ->GetExprGenerator()
         ->CreateVoidValue();
@@ -2817,15 +3107,14 @@ mlir::Value NVVMIntrinsic::CreateWgmmaM64N128K128F32BF16BF16Function(
     return resultVector;
 }
 
-bool NVVMIntrinsic::CheckWgmmaM64N128K16F32BF16BF16RSFunction(
+bool NVVMIntrinsic::CheckWgmmaM64NK16F32BF16BF16RSFunction(
     ast::Call *call_expr, GeneratorContext *ctx,
-    llvm::ArrayRef<mlir::Value> resolved_args) const {
-    constexpr llvm::StringLiteral kName =
-        "wgmma_m64n128k16_f32_bf16_bf16_rs";
+    llvm::ArrayRef<mlir::Value> resolved_args, int64_t n,
+    llvm::StringRef name) const {
     auto report = [&](llvm::StringRef message) {
         ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
                                         call_expr->GetSourceRange().getBegin())
-            << kName << " " << message;
+            << name << " " << message;
         return false;
     };
     if (resolved_args.size() != 4) {
@@ -2835,20 +3124,31 @@ bool NVVMIntrinsic::CheckWgmmaM64N128K16F32BF16BF16RSFunction(
         !resolved_args[3]) {
         return report("received an invalid operand");
     }
-    auto aType = mlir::dyn_cast<mlir::VectorType>(resolved_args[0].getType());
-    if (!aType || aType.getRank() != 1 || aType.getNumElements() != 4 ||
-        !aType.getElementType().isInteger(32)) {
+    auto isVectorLike = [](mlir::Value value, int64_t elements,
+                           mlir::Type elementType) {
+        if (auto vectorType =
+                mlir::dyn_cast<mlir::VectorType>(value.getType())) {
+            return vectorType.getRank() == 1 &&
+                   vectorType.getNumElements() == elements &&
+                   vectorType.getElementType() == elementType;
+        }
+        if (auto memrefType =
+                mlir::dyn_cast<cf::MemRefType>(value.getType())) {
+            return memrefType.getRank() == 1 &&
+                   memrefType.getShape()[0] == elements &&
+                   memrefType.getElementType() == elementType;
+        }
+        return false;
+    };
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    if (!isVectorLike(resolved_args[0], 4, builder.getI32Type())) {
         return report("A must be vector<4xi32> containing packed BF16 values");
     }
     if (!resolved_args[1].getType().isInteger(64)) {
         return report("desc_b must be i64 descriptor bits");
     }
-    auto accType =
-        mlir::dyn_cast<mlir::VectorType>(resolved_args[2].getType());
-    if (!accType || accType.getRank() != 1 ||
-        accType.getNumElements() != 64 ||
-        !accType.getElementType().isF32()) {
-        return report("accumulator must be vector<64xf32>");
+    if (!isVectorLike(resolved_args[2], n / 2, builder.getF32Type())) {
+        return report("accumulator must be a one-dimensional f32 vector");
     }
     auto scaleD = getConstantIntValue(resolved_args[3]);
     if (!scaleD || (*scaleD != 0 && *scaleD != 1)) {
@@ -2857,18 +3157,42 @@ bool NVVMIntrinsic::CheckWgmmaM64N128K16F32BF16BF16RSFunction(
     return true;
 }
 
-mlir::Value NVVMIntrinsic::CreateWgmmaM64N128K16F32BF16BF16RSFunction(
+mlir::Value NVVMIntrinsic::CreateWgmmaM64NK16F32BF16BF16RSFunction(
     ast::Call *call_expr, GeneratorContext *ctx,
-    llvm::ArrayRef<mlir::Value> resolved_args) const {
-    if (!CheckWgmmaM64N128K16F32BF16BF16RSFunction(call_expr, ctx,
-                                                    resolved_args)) {
+    llvm::ArrayRef<mlir::Value> resolved_args, int64_t n) const {
+    std::string name =
+        "wgmma_m64n" + std::to_string(n) + "k16_f32_bf16_bf16_rs";
+    if (!CheckWgmmaM64NK16F32BF16BF16RSFunction(
+            call_expr, ctx, resolved_args, n, name)) {
         return nullptr;
     }
 
-    constexpr int64_t kAccumulatorSize = 64;
+    const int64_t accumulatorSize = n / 2;
     auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
     auto location = builder.getUnknownLoc();
-    llvm::SmallVector<mlir::Type> elementTypes(kAccumulatorSize,
+    llvm::SmallVector<mlir::Value> args(resolved_args.begin(),
+                                        resolved_args.end());
+    auto materializeVector = [&](mlir::Value value, int64_t elements,
+                                 mlir::Type elementType) -> mlir::Value {
+        if (mlir::isa<mlir::VectorType>(value.getType())) {
+            return value;
+        }
+        auto memrefType = mlir::cast<cf::MemRefType>(value.getType());
+        auto vectorType = mlir::VectorType::get({elements}, elementType);
+        llvm::SmallVector<mlir::Value> indices;
+        indices.reserve(memrefType.getRank());
+        for (int64_t i = 0; i < memrefType.getRank(); ++i) {
+            indices.push_back(mlir::arith::ConstantIndexOp::create(
+                builder, location, 0));
+        }
+        return cf::AveLangMemRefLoadVecOp::create(
+                   builder, location, vectorType, value, indices)
+            .getResult();
+    };
+    args[0] = materializeVector(args[0], 4, builder.getI32Type());
+    args[2] = materializeVector(args[2], accumulatorSize,
+                                builder.getF32Type());
+    llvm::SmallVector<mlir::Type> elementTypes(accumulatorSize,
                                                builder.getF32Type());
     auto structType = mlir::LLVM::LLVMStructType::getLiteral(
         builder.getContext(), elementTypes);
@@ -2876,30 +3200,34 @@ mlir::Value NVVMIntrinsic::CreateWgmmaM64N128K16F32BF16BF16RSFunction(
     llvm::SmallVector<mlir::Value> operands;
     for (int64_t i = 0; i < 4; ++i) {
         operands.push_back(mlir::vector::ExtractOp::create(
-            builder, location, resolved_args[0], i));
+            builder, location, args[0], i));
     }
-    operands.push_back(resolved_args[1]);
-
-    llvm::SmallVector<std::string> constraints(kAccumulatorSize, "=f");
+    operands.push_back(args[1]);
+    llvm::SmallVector<std::string> constraints(accumulatorSize, "=f");
     constraints.insert(constraints.end(), 4, "r");
     constraints.push_back("l");
-    bool accumulate = *getConstantIntValue(resolved_args[3]) == 1;
+    bool accumulate = *getConstantIntValue(args[3]) == 1;
     if (accumulate) {
-        for (int64_t i = 0; i < kAccumulatorSize; ++i) {
+        for (int64_t i = 0; i < accumulatorSize; ++i) {
             operands.push_back(mlir::vector::ExtractOp::create(
-                builder, location, resolved_args[2], i));
+                builder, location, args[2], i));
             constraints.push_back(std::to_string(i));
         }
     }
 
     std::string asmString =
-        "wgmma.mma_async.sync.aligned.m64n128k16.f32.bf16.bf16 {";
-    for (int64_t i = 0; i < kAccumulatorSize; ++i) {
+        "wgmma.mma_async.sync.aligned.m64n" + std::to_string(n) +
+        "k16.f32.bf16.bf16 {";
+    for (int64_t i = 0; i < accumulatorSize; ++i) {
         if (i != 0)
             asmString += ", ";
         asmString += "$" + std::to_string(i);
     }
-    asmString += "}, {$64, $65, $66, $67}, $68, ";
+    asmString += "}, {$" + std::to_string(accumulatorSize) + ", $" +
+                 std::to_string(accumulatorSize + 1) + ", $" +
+                 std::to_string(accumulatorSize + 2) + ", $" +
+                 std::to_string(accumulatorSize + 3) + "}, $" +
+                 std::to_string(accumulatorSize + 4) + ", ";
     asmString += accumulate ? "1, 1, 1, 1;" : "0, 1, 1, 1;";
 
     std::string constraintString;
@@ -2914,12 +3242,12 @@ mlir::Value NVVMIntrinsic::CreateWgmmaM64N128K16F32BF16BF16RSFunction(
         mlir::LLVM::tailcallkind::TailCallKind::None,
         mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
 
-    auto resultType = mlir::cast<mlir::VectorType>(resolved_args[2].getType());
+    auto resultType = mlir::cast<mlir::VectorType>(args[2].getType());
     auto zero = mlir::arith::ConstantFloatOp::create(
         builder, location, builder.getF32Type(), llvm::APFloat(0.0f));
     mlir::Value resultVector = mlir::vector::BroadcastOp::create(
         builder, location, resultType, zero);
-    for (int64_t i = 0; i < kAccumulatorSize; ++i) {
+    for (int64_t i = 0; i < accumulatorSize; ++i) {
         auto element = mlir::LLVM::ExtractValueOp::create(
             builder, location, builder.getF32Type(), inlineAsm.getRes(),
             llvm::ArrayRef<int64_t>{i});
@@ -2927,6 +3255,952 @@ mlir::Value NVVMIntrinsic::CreateWgmmaM64N128K16F32BF16BF16RSFunction(
             builder, location, element, resultVector, i);
     }
     return resultVector;
+}
+
+bool NVVMIntrinsic::CheckWgmmaM64N16K16F32BF16BF16RSX8Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    constexpr llvm::StringLiteral kName =
+        "wgmma_m64n16k16_f32_bf16_bf16_rs_x8";
+    auto report = [&](llvm::StringRef message) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << kName << " " << message;
+        return false;
+    };
+    if (resolved_args.size() != 5 ||
+        llvm::any_of(resolved_args, [](mlir::Value value) { return !value; })) {
+        return report(
+            "requires A[32], desc_b, accumulator, scale_d, and descriptor step");
+    }
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto aType = mlir::dyn_cast<cf::MemRefType>(resolved_args[0].getType());
+    if (!aType || aType.getRank() != 1 || aType.getShape()[0] != 32 ||
+        aType.getElementType() != builder.getI32Type()) {
+        return report("A must be a 32-element i32 tensor of packed BF16 fragments");
+    }
+    if (!resolved_args[1].getType().isInteger(64)) {
+        return report("desc_b must be i64 descriptor bits");
+    }
+    auto isAccumulator = [&](mlir::Value value) {
+        if (auto vectorType =
+                mlir::dyn_cast<mlir::VectorType>(value.getType())) {
+            return vectorType.getRank() == 1 &&
+                   vectorType.getNumElements() == 8 &&
+                   vectorType.getElementType().isF32();
+        }
+        if (auto memrefType =
+                mlir::dyn_cast<cf::MemRefType>(value.getType())) {
+            return memrefType.getRank() == 1 &&
+                   memrefType.getShape()[0] == 8 &&
+                   memrefType.getElementType().isF32();
+        }
+        return false;
+    };
+    if (!isAccumulator(resolved_args[2])) {
+        return report("accumulator must be a one-dimensional 8xf32 value");
+    }
+    auto scaleD = getConstantIntValue(resolved_args[3]);
+    if (!scaleD || (*scaleD != 0 && *scaleD != 1)) {
+        return report("scale_d must be the constant integer 0 or 1");
+    }
+    auto descriptorStep = getConstantIntValue(resolved_args[4]);
+    if (!descriptorStep || *descriptorStep < 0) {
+        return report("descriptor step must be a non-negative constant integer");
+    }
+    return true;
+}
+
+mlir::Value NVVMIntrinsic::CreateWgmmaM64N16K16F32BF16BF16RSX8Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (!CheckWgmmaM64N16K16F32BF16BF16RSX8Function(
+            call_expr, ctx, resolved_args)) {
+        return nullptr;
+    }
+
+    constexpr int64_t kTiles = 8;
+    constexpr int64_t kARegisters = 4;
+    constexpr int64_t kOutputs = 8;
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    auto vectorI32x4 = mlir::VectorType::get({kARegisters},
+                                             builder.getI32Type());
+    auto resultType = mlir::VectorType::get({kOutputs}, builder.getF32Type());
+
+    mlir::Value accumulator = resolved_args[2];
+    if (mlir::isa<cf::MemRefType>(accumulator.getType())) {
+        auto zero = mlir::arith::ConstantIndexOp::create(builder, location, 0);
+        accumulator = cf::AveLangMemRefLoadVecOp::create(
+                          builder, location, resultType, accumulator,
+                          mlir::ValueRange{zero})
+                          .getResult();
+    }
+
+    llvm::SmallVector<mlir::Value> aFragments;
+    aFragments.reserve(kTiles);
+    for (int64_t tile = 0; tile < kTiles; ++tile) {
+        auto offset = mlir::arith::ConstantIndexOp::create(
+            builder, location, tile * kARegisters);
+        aFragments.push_back(cf::AveLangMemRefLoadVecOp::create(
+                                 builder, location, vectorI32x4,
+                                 resolved_args[0], mlir::ValueRange{offset})
+                                 .getResult());
+    }
+
+    const int64_t descriptorStep =
+        *getConstantIntValue(resolved_args[4]);
+
+    llvm::SmallVector<mlir::Type> elementTypes(kOutputs,
+                                               builder.getF32Type());
+    auto structType = mlir::LLVM::LLVMStructType::getLiteral(
+        builder.getContext(), elementTypes);
+    llvm::SmallVector<mlir::Value> operands;
+    for (auto fragment : aFragments) {
+        for (int64_t element = 0; element < kARegisters; ++element) {
+            operands.push_back(mlir::vector::ExtractOp::create(
+                builder, location, fragment, element));
+        }
+    }
+    for (int64_t tile = 0; tile < kTiles; ++tile) {
+        if (tile == 0 || descriptorStep == 0) {
+            operands.push_back(resolved_args[1]);
+        } else {
+            auto offset = mlir::arith::ConstantIntOp::create(
+                builder, location, tile * descriptorStep, 64);
+            operands.push_back(mlir::arith::AddIOp::create(
+                builder, location, resolved_args[1], offset));
+        }
+    }
+
+    llvm::SmallVector<std::string> constraints(kOutputs, "=f");
+    constraints.insert(constraints.end(), kTiles * kARegisters, "r");
+    constraints.insert(constraints.end(), kTiles, "l");
+    const bool accumulate = *getConstantIntValue(resolved_args[3]) == 1;
+    if (accumulate) {
+        for (int64_t output = 0; output < kOutputs; ++output) {
+            operands.push_back(mlir::vector::ExtractOp::create(
+                builder, location, accumulator, output));
+            constraints.push_back(std::to_string(output));
+        }
+    }
+
+    const int64_t descriptorBase = kOutputs + kTiles * kARegisters;
+    std::string asmString = "";
+    for (int64_t tile = 0; tile < kTiles; ++tile) {
+        asmString +=
+            "wgmma.mma_async.sync.aligned.m64n16k16.f32.bf16.bf16 {";
+        for (int64_t output = 0; output < kOutputs; ++output) {
+            if (output != 0)
+                asmString += ", ";
+            asmString += "$" + std::to_string(output);
+        }
+        const int64_t aBase = kOutputs + tile * kARegisters;
+        asmString += "}, {" + std::string("$") + std::to_string(aBase) +
+                     ", $" + std::to_string(aBase + 1) + ", $" +
+                     std::to_string(aBase + 2) + ", $" +
+                     std::to_string(aBase + 3) + "}, $" +
+                     std::to_string(descriptorBase + tile) + ", " +
+                     std::to_string(tile == 0 && !accumulate ? 0 : 1) +
+                     ", 1, 1, 0;\n";
+    }
+
+    std::string constraintString;
+    for (size_t i = 0; i < constraints.size(); ++i) {
+        if (i != 0)
+            constraintString += ",";
+        constraintString += constraints[i];
+    }
+    auto inlineAsm = mlir::LLVM::InlineAsmOp::create(
+        builder, location, structType, operands, asmString, constraintString,
+        /*hasSideEffects=*/true, /*isAlignStack=*/false,
+        mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+
+    auto zero = mlir::arith::ConstantFloatOp::create(
+        builder, location, builder.getF32Type(), llvm::APFloat(0.0f));
+    mlir::Value result =
+        mlir::vector::BroadcastOp::create(builder, location, resultType, zero);
+    for (int64_t output = 0; output < kOutputs; ++output) {
+        auto element = mlir::LLVM::ExtractValueOp::create(
+            builder, location, builder.getF32Type(), inlineAsm.getRes(),
+            llvm::ArrayRef<int64_t>{output});
+        result = mlir::vector::InsertOp::create(builder, location, element,
+                                                result, output);
+    }
+    return result;
+}
+
+bool NVVMIntrinsic::CheckWgmmaM64N16K16F32BF16BF16RSSmemX8Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    constexpr llvm::StringLiteral kName =
+        "wgmma_m64n16k16_f32_bf16_bf16_rs_smem_x8";
+    auto report = [&](llvm::StringRef message) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << kName << " " << message;
+        return false;
+    };
+    if (resolved_args.size() != 9 ||
+        llvm::any_of(resolved_args, [](mlir::Value value) { return !value; })) {
+        return report("requires A[32], shared-memory base/stage, accumulator, "
+                      "scale_d, byte layout, and descriptor step");
+    }
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto aType = mlir::dyn_cast<cf::MemRefType>(resolved_args[0].getType());
+    if (!aType || aType.getRank() != 1 || aType.getShape()[0] != 32 ||
+        aType.getElementType() != builder.getI32Type()) {
+        return report("A must be a 32-element i32 tensor of packed BF16 fragments");
+    }
+    if (!resolved_args[1].getType().isInteger(32) ||
+        !resolved_args[2].getType().isInteger(32)) {
+        return report("shared-memory base and stage must be i32 values");
+    }
+    auto isAccumulator = [&](mlir::Value value) {
+        if (auto vectorType = mlir::dyn_cast<mlir::VectorType>(value.getType())) {
+            return vectorType.getRank() == 1 &&
+                   vectorType.getNumElements() == 8 &&
+                   vectorType.getElementType().isF32();
+        }
+        if (auto memrefType = mlir::dyn_cast<cf::MemRefType>(value.getType())) {
+            return memrefType.getRank() == 1 &&
+                   memrefType.getShape()[0] == 8 &&
+                   memrefType.getElementType().isF32();
+        }
+        return false;
+    };
+    if (!isAccumulator(resolved_args[3])) {
+        return report("accumulator must be a one-dimensional 8xf32 value");
+    }
+    auto scaleD = getConstantIntValue(resolved_args[4]);
+    if (!scaleD || (*scaleD != 0 && *scaleD != 1)) {
+        return report("scale_d must be the constant integer 0 or 1");
+    }
+    for (size_t index = 5; index < 9; ++index) {
+        auto value = getConstantIntValue(resolved_args[index]);
+        if (!value || *value < 0) {
+            return report("byte layout and descriptor step must be "
+                          "non-negative constant integers");
+        }
+    }
+    auto leading = *getConstantIntValue(resolved_args[7]);
+    if ((leading % 16) != 0 || leading > 0xffff0) {
+        return report("leading byte offset must be a multiple of 16");
+    }
+    return true;
+}
+
+mlir::Value NVVMIntrinsic::CreateWgmmaM64N16K16F32BF16BF16RSSmemX8Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (!CheckWgmmaM64N16K16F32BF16BF16RSSmemX8Function(
+            call_expr, ctx, resolved_args)) {
+        return nullptr;
+    }
+
+    constexpr int64_t kTiles = 8;
+    constexpr int64_t kARegisters = 4;
+    constexpr int64_t kOutputs = 8;
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    auto vectorI32x4 = mlir::VectorType::get({kARegisters},
+                                             builder.getI32Type());
+    auto resultType = mlir::VectorType::get({kOutputs}, builder.getF32Type());
+
+    mlir::Value accumulator = resolved_args[3];
+    if (mlir::isa<cf::MemRefType>(accumulator.getType())) {
+        auto zero = mlir::arith::ConstantIndexOp::create(builder, location, 0);
+        accumulator = cf::AveLangMemRefLoadVecOp::create(
+                          builder, location, resultType, accumulator,
+                          mlir::ValueRange{zero})
+                          .getResult();
+    }
+
+    llvm::SmallVector<mlir::Value> aFragments;
+    aFragments.reserve(kTiles);
+    for (int64_t tile = 0; tile < kTiles; ++tile) {
+        auto offset = mlir::arith::ConstantIndexOp::create(
+            builder, location, tile * kARegisters);
+        aFragments.push_back(cf::AveLangMemRefLoadVecOp::create(
+                                 builder, location, vectorI32x4,
+                                 resolved_args[0], mlir::ValueRange{offset})
+                                 .getResult());
+    }
+
+    llvm::SmallVector<mlir::Type> elementTypes(kOutputs,
+                                               builder.getF32Type());
+    auto structType = mlir::LLVM::LLVMStructType::getLiteral(
+        builder.getContext(), elementTypes);
+    llvm::SmallVector<mlir::Value> operands;
+    for (auto fragment : aFragments) {
+        for (int64_t element = 0; element < kARegisters; ++element) {
+            operands.push_back(mlir::vector::ExtractOp::create(
+                builder, location, fragment, element));
+        }
+    }
+    operands.push_back(resolved_args[1]);
+    operands.push_back(resolved_args[2]);
+
+    llvm::SmallVector<std::string> constraints(kOutputs, "=f");
+    constraints.insert(constraints.end(), kTiles * kARegisters + 2, "r");
+    const bool accumulate = *getConstantIntValue(resolved_args[4]) == 1;
+    if (accumulate) {
+        for (int64_t output = 0; output < kOutputs; ++output) {
+            operands.push_back(mlir::vector::ExtractOp::create(
+                builder, location, accumulator, output));
+            constraints.push_back(std::to_string(output));
+        }
+    }
+
+    const int64_t baseByteOffset =
+        *getConstantIntValue(resolved_args[5]);
+    const int64_t stageByteStride =
+        *getConstantIntValue(resolved_args[6]);
+    const int64_t leadingByteOffset =
+        *getConstantIntValue(resolved_args[7]);
+    const int64_t descriptorStep =
+        *getConstantIntValue(resolved_args[8]);
+    constexpr int64_t kSmemBase = kOutputs + kTiles * kARegisters;
+    constexpr int64_t kStage = kSmemBase + 1;
+    std::string asmString =
+        "{ .reg .b32 addr, bits; .reg .b64 desc;\n"
+        "mad.lo.u32 addr, $" +
+        std::to_string(kStage) + ", " + std::to_string(stageByteStride) +
+        ", $" + std::to_string(kSmemBase) + ";\n";
+    if (baseByteOffset != 0) {
+        asmString += "add.u32 addr, addr, " +
+                     std::to_string(baseByteOffset) + ";\n";
+    }
+    asmString +=
+        "and.b32 bits, addr, 0x3ffff;\n"
+        "shr.u32 bits, bits, 4;\n"
+        "or.b32 bits, bits, " +
+        std::to_string((leadingByteOffset / 16) << 16) +
+        ";\ncvt.u64.u32 desc, bits;\n"
+        "or.b64 desc, desc, 34359738368;\n";
+    for (int64_t tile = 0; tile < kTiles; ++tile) {
+        if (tile != 0 && descriptorStep != 0) {
+            asmString += "add.u64 desc, desc, " +
+                         std::to_string(descriptorStep) + ";\n";
+        }
+        asmString +=
+            "wgmma.mma_async.sync.aligned.m64n16k16.f32.bf16.bf16 {";
+        for (int64_t output = 0; output < kOutputs; ++output) {
+            if (output != 0)
+                asmString += ", ";
+            asmString += "$" + std::to_string(output);
+        }
+        const int64_t aBase = kOutputs + tile * kARegisters;
+        asmString += "}, {$" + std::to_string(aBase) + ", $" +
+                     std::to_string(aBase + 1) + ", $" +
+                     std::to_string(aBase + 2) + ", $" +
+                     std::to_string(aBase + 3) + "}, desc, " +
+                     std::to_string(tile == 0 && !accumulate ? 0 : 1) +
+                     ", 1, 1, 0;\n";
+    }
+    asmString += "}";
+
+    std::string constraintString;
+    for (size_t index = 0; index < constraints.size(); ++index) {
+        if (index != 0)
+            constraintString += ",";
+        constraintString += constraints[index];
+    }
+    auto inlineAsm = mlir::LLVM::InlineAsmOp::create(
+        builder, location, structType, operands, asmString, constraintString,
+        /*hasSideEffects=*/true, /*isAlignStack=*/false,
+        mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+
+    auto zero = mlir::arith::ConstantFloatOp::create(
+        builder, location, builder.getF32Type(), llvm::APFloat(0.0f));
+    mlir::Value result =
+        mlir::vector::BroadcastOp::create(builder, location, resultType, zero);
+    for (int64_t output = 0; output < kOutputs; ++output) {
+        auto element = mlir::LLVM::ExtractValueOp::create(
+            builder, location, builder.getF32Type(), inlineAsm.getRes(),
+            llvm::ArrayRef<int64_t>{output});
+        result = mlir::vector::InsertOp::create(builder, location, element,
+                                                result, output);
+    }
+    return result;
+}
+
+bool NVVMIntrinsic::CheckWgmmaM64N16K16F32BF16BF16RSF32X8Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    constexpr llvm::StringLiteral kName =
+        "wgmma_m64n16k16_f32_bf16_bf16_rs_f32_x8";
+    auto report = [&](llvm::StringRef message) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << kName << " " << message;
+        return false;
+    };
+    if (resolved_args.size() != 6 ||
+        llvm::any_of(resolved_args, [](mlir::Value value) { return !value; })) {
+        return report("requires A0[32], A1[32], desc_b, accumulator, "
+                      "scale_d, and descriptor step");
+    }
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto isF32Vector = [&](mlir::Value value, int64_t elements) {
+        if (auto vectorType = mlir::dyn_cast<mlir::VectorType>(value.getType())) {
+            return vectorType.getRank() == 1 &&
+                   vectorType.getNumElements() == elements &&
+                   vectorType.getElementType().isF32();
+        }
+        if (auto memrefType = mlir::dyn_cast<cf::MemRefType>(value.getType())) {
+            return memrefType.getRank() == 1 &&
+                   memrefType.getShape()[0] == elements &&
+                   memrefType.getElementType() == builder.getF32Type();
+        }
+        return false;
+    };
+    if (!isF32Vector(resolved_args[0], 32) ||
+        !isF32Vector(resolved_args[1], 32)) {
+        return report("A0 and A1 must each be one-dimensional 32xf32 values");
+    }
+    if (!resolved_args[2].getType().isInteger(64)) {
+        return report("desc_b must be i64 descriptor bits");
+    }
+    if (!isF32Vector(resolved_args[3], 8)) {
+        return report("accumulator must be a one-dimensional 8xf32 value");
+    }
+    auto scaleD = getConstantIntValue(resolved_args[4]);
+    if (!scaleD || (*scaleD != 0 && *scaleD != 1)) {
+        return report("scale_d must be the constant integer 0 or 1");
+    }
+    auto descriptorStep = getConstantIntValue(resolved_args[5]);
+    if (!descriptorStep || *descriptorStep < 0) {
+        return report("descriptor step must be a non-negative constant integer");
+    }
+    return true;
+}
+
+mlir::Value NVVMIntrinsic::CreateWgmmaM64N16K16F32BF16BF16RSF32X8Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (!CheckWgmmaM64N16K16F32BF16BF16RSF32X8Function(
+            call_expr, ctx, resolved_args)) {
+        return nullptr;
+    }
+
+    constexpr int64_t kTiles = 8;
+    constexpr int64_t kValuesPerTile = 8;
+    constexpr int64_t kOutputs = 8;
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    auto vectorF32x32 =
+        mlir::VectorType::get({32}, builder.getF32Type());
+    auto resultType =
+        mlir::VectorType::get({kOutputs}, builder.getF32Type());
+
+    auto materializeVector = [&](mlir::Value value,
+                                 mlir::VectorType type) -> mlir::Value {
+        if (!mlir::isa<cf::MemRefType>(value.getType())) {
+            return value;
+        }
+        auto zero = mlir::arith::ConstantIndexOp::create(builder, location, 0);
+        return cf::AveLangMemRefLoadVecOp::create(
+                   builder, location, type, value, mlir::ValueRange{zero})
+            .getResult();
+    };
+    auto a0 = materializeVector(resolved_args[0], vectorF32x32);
+    auto a1 = materializeVector(resolved_args[1], vectorF32x32);
+    auto accumulator = materializeVector(resolved_args[3], resultType);
+
+    llvm::SmallVector<mlir::Type> elementTypes(kOutputs,
+                                               builder.getF32Type());
+    auto structType = mlir::LLVM::LLVMStructType::getLiteral(
+        builder.getContext(), elementTypes);
+    llvm::SmallVector<mlir::Value> operands;
+    operands.reserve(2 * 32 + 1 + kOutputs);
+    for (auto source : {a0, a1}) {
+        for (int64_t element = 0; element < 32; ++element) {
+            operands.push_back(mlir::vector::ExtractOp::create(
+                builder, location, source, element));
+        }
+    }
+    operands.push_back(resolved_args[2]);
+
+    llvm::SmallVector<std::string> constraints(kOutputs, "=f");
+    constraints.insert(constraints.end(), 2 * 32, "f");
+    constraints.push_back("l");
+    const bool accumulate = *getConstantIntValue(resolved_args[4]) == 1;
+    if (accumulate) {
+        for (int64_t output = 0; output < kOutputs; ++output) {
+            operands.push_back(mlir::vector::ExtractOp::create(
+                builder, location, accumulator, output));
+            constraints.push_back(std::to_string(output));
+        }
+    }
+
+    const int64_t descriptorStep =
+        *getConstantIntValue(resolved_args[5]);
+    const int64_t inputBase = kOutputs;
+    const int64_t descriptorOperand = inputBase + 2 * 32;
+    std::string asmString =
+        "{ .reg .b32 a<4>; .reg .b64 desc;\nmov.b64 desc, $" +
+        std::to_string(descriptorOperand) + ";\n";
+    for (int64_t tile = 0; tile < kTiles; ++tile) {
+        if (tile != 0 && descriptorStep != 0) {
+            asmString += "add.u64 desc, desc, " +
+                         std::to_string(descriptorStep) + ";\n";
+        }
+        const int64_t sourceBase = inputBase + tile * kValuesPerTile;
+        for (int64_t pair = 0; pair < 4; ++pair) {
+            const int64_t lo = sourceBase + 2 * pair;
+            const int64_t hi = lo + 1;
+            asmString += "cvt.rn.bf16x2.f32 a" + std::to_string(pair) +
+                         ", $" + std::to_string(hi) + ", $" +
+                         std::to_string(lo) + ";\n";
+        }
+        asmString +=
+            "wgmma.mma_async.sync.aligned.m64n16k16.f32.bf16.bf16 {";
+        for (int64_t output = 0; output < kOutputs; ++output) {
+            if (output != 0)
+                asmString += ", ";
+            asmString += "$" + std::to_string(output);
+        }
+        asmString += "}, {a0, a1, a2, a3}, desc, " +
+                     std::to_string(tile == 0 && !accumulate ? 0 : 1) +
+                     ", 1, 1, 0;\n";
+    }
+    asmString += "}";
+
+    std::string constraintString;
+    for (size_t index = 0; index < constraints.size(); ++index) {
+        if (index != 0)
+            constraintString += ",";
+        constraintString += constraints[index];
+    }
+    auto inlineAsm = mlir::LLVM::InlineAsmOp::create(
+        builder, location, structType, operands, asmString, constraintString,
+        /*hasSideEffects=*/true, /*isAlignStack=*/false,
+        mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+
+    auto zero = mlir::arith::ConstantFloatOp::create(
+        builder, location, builder.getF32Type(), llvm::APFloat(0.0f));
+    mlir::Value result =
+        mlir::vector::BroadcastOp::create(builder, location, resultType, zero);
+    for (int64_t output = 0; output < kOutputs; ++output) {
+        auto element = mlir::LLVM::ExtractValueOp::create(
+            builder, location, builder.getF32Type(), inlineAsm.getRes(),
+            llvm::ArrayRef<int64_t>{output});
+        result = mlir::vector::InsertOp::create(builder, location, element,
+                                                result, output);
+    }
+    return result;
+}
+
+bool NVVMIntrinsic::
+    CheckWgmmaM64N16M64N64X2K16F32BF16BF16RSBranchFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const {
+    constexpr llvm::StringLiteral kName =
+        "wgmma_m64n16x2_m64n64x4_k16_f32_bf16_bf16_rs_branch";
+    auto report = [&](llvm::StringRef message) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << kName << " " << message;
+        return false;
+    };
+    if (resolved_args.size() != 11 ||
+        llvm::any_of(resolved_args, [](mlir::Value value) { return !value; })) {
+        return report("requires two A fragments, shared base/stage, "
+                      "output/state accumulators, and zero_start");
+    }
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto isVectorLike = [](mlir::Value value, int64_t elements,
+                           mlir::Type elementType) {
+        if (auto vectorType =
+                mlir::dyn_cast<mlir::VectorType>(value.getType())) {
+            return vectorType.getRank() == 1 &&
+                   vectorType.getNumElements() == elements &&
+                   vectorType.getElementType() == elementType;
+        }
+        if (auto memrefType = mlir::dyn_cast<cf::MemRefType>(value.getType())) {
+            return memrefType.getRank() == 1 &&
+                   memrefType.getShape()[0] == elements &&
+                   memrefType.getElementType() == elementType;
+        }
+        return false;
+    };
+    if (!isVectorLike(resolved_args[0], 4, builder.getI32Type()) ||
+        !isVectorLike(resolved_args[1], 4, builder.getI32Type())) {
+        return report("A fragments must be one-dimensional 4xi32 values");
+    }
+    if (!resolved_args[2].getType().isInteger(32) ||
+        !resolved_args[3].getType().isInteger(32)) {
+        return report("shared base and stage must be i32 values");
+    }
+    if (!isVectorLike(resolved_args[4], 8, builder.getF32Type()) ||
+        !isVectorLike(resolved_args[5], 8, builder.getF32Type())) {
+        return report("output accumulators must be one-dimensional 8xf32 values");
+    }
+    if (!isVectorLike(resolved_args[6], 32, builder.getF32Type()) ||
+        !isVectorLike(resolved_args[7], 32, builder.getF32Type()) ||
+        !isVectorLike(resolved_args[8], 32, builder.getF32Type()) ||
+        !isVectorLike(resolved_args[9], 32, builder.getF32Type())) {
+        return report("state accumulators must be one-dimensional 32xf32 values");
+    }
+    if (!resolved_args[10].getType().isInteger(32)) {
+        return report("zero_start must be i32");
+    }
+    return true;
+}
+
+mlir::Value NVVMIntrinsic::
+    CreateWgmmaM64N16M64N64X2K16F32BF16BF16RSBranchFunction(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (!CheckWgmmaM64N16M64N64X2K16F32BF16BF16RSBranchFunction(
+            call_expr, ctx, resolved_args)) {
+        return nullptr;
+    }
+
+    constexpr int64_t kOutputElements = 8;
+    constexpr int64_t kStateElements = 32;
+    constexpr int64_t kResultElements =
+        2 * kOutputElements + 4 * kStateElements;
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    auto materializeVector = [&](mlir::Value value, int64_t elements,
+                                 mlir::Type elementType) -> mlir::Value {
+        if (mlir::isa<mlir::VectorType>(value.getType())) {
+            return value;
+        }
+        auto vectorType = mlir::VectorType::get({elements}, elementType);
+        auto zero = mlir::arith::ConstantIndexOp::create(builder, location, 0);
+        return cf::AveLangMemRefLoadVecOp::create(
+                   builder, location, vectorType, value,
+                   mlir::ValueRange{zero})
+            .getResult();
+    };
+
+    auto a0 = materializeVector(resolved_args[0], 4, builder.getI32Type());
+    auto a1 = materializeVector(resolved_args[1], 4, builder.getI32Type());
+    auto out0 = materializeVector(resolved_args[4], kOutputElements,
+                                  builder.getF32Type());
+    auto out1 = materializeVector(resolved_args[5], kOutputElements,
+                                  builder.getF32Type());
+    auto state0 = materializeVector(resolved_args[6], kStateElements,
+                                    builder.getF32Type());
+    auto state1 = materializeVector(resolved_args[7], kStateElements,
+                                    builder.getF32Type());
+    auto state2 = materializeVector(resolved_args[8], kStateElements,
+                                    builder.getF32Type());
+    auto state3 = materializeVector(resolved_args[9], kStateElements,
+                                    builder.getF32Type());
+    llvm::SmallVector<mlir::Type> elementTypes(kResultElements,
+                                               builder.getF32Type());
+    auto structType = mlir::LLVM::LLVMStructType::getLiteral(
+        builder.getContext(), elementTypes);
+    llvm::SmallVector<mlir::Value> operands;
+    for (int64_t element = 0; element < 4; ++element) {
+        operands.push_back(mlir::vector::ExtractOp::create(
+            builder, location, a0, element));
+    }
+    for (int64_t element = 0; element < 4; ++element) {
+        operands.push_back(mlir::vector::ExtractOp::create(
+            builder, location, a1, element));
+    }
+    operands.push_back(resolved_args[2]);
+    operands.push_back(resolved_args[3]);
+    operands.push_back(resolved_args[10]);
+
+    llvm::SmallVector<std::string> constraints(kResultElements, "=f");
+    constraints.insert(constraints.end(), 8, "r");
+    constraints.insert(constraints.end(), 3, "r");
+    auto appendTiedInputs = [&](mlir::Value value, int64_t elements,
+                                int64_t resultOffset) {
+        for (int64_t element = 0; element < elements; ++element) {
+            operands.push_back(mlir::vector::ExtractOp::create(
+                builder, location, value, element));
+            constraints.push_back(std::to_string(resultOffset + element));
+        }
+    };
+    appendTiedInputs(out0, kOutputElements, 0);
+    appendTiedInputs(out1, kOutputElements, kOutputElements);
+    appendTiedInputs(state0, kStateElements, 2 * kOutputElements);
+    appendTiedInputs(state1, kStateElements,
+                     2 * kOutputElements + kStateElements);
+    appendTiedInputs(state2, kStateElements,
+                     2 * kOutputElements + 2 * kStateElements);
+    appendTiedInputs(state3, kStateElements,
+                     2 * kOutputElements + 3 * kStateElements);
+
+    auto registerList = [](int64_t begin, int64_t count) {
+        std::string result = "{";
+        for (int64_t element = 0; element < count; ++element) {
+            if (element != 0)
+                result += ", ";
+            result += "$" + std::to_string(begin + element);
+        }
+        return result + "}";
+    };
+    constexpr int64_t kA0Base = kResultElements;
+    constexpr int64_t kA1Base = kA0Base + 4;
+    constexpr int64_t kSmemBase = kA1Base + 4;
+    constexpr int64_t kStage = kSmemBase + 1;
+    constexpr int64_t kZeroStart = kStage + 1;
+    constexpr int64_t kOut0 = 0;
+    constexpr int64_t kOut1 = kOut0 + kOutputElements;
+    constexpr int64_t kState0 = kOut1 + kOutputElements;
+    constexpr int64_t kState1 = kState0 + kStateElements;
+    constexpr int64_t kState2 = kState1 + kStateElements;
+    constexpr int64_t kState3 = kState2 + kStateElements;
+    const std::string a0List = registerList(kA0Base, 4);
+    const std::string a1List = registerList(kA1Base, 4);
+    std::string asmString =
+        "{ .reg .pred p; .reg .b32 addr, bits; "
+        ".reg .b64 d16, d64, d64hi;\n"
+        "mad.lo.u32 addr, $" +
+        std::to_string(kStage) + ", 512, $" +
+        std::to_string(kSmemBase) + ";\n"
+        "add.u32 addr, addr, 25088;\n"
+        "and.b32 bits, addr, 0x3ffff;\n"
+        "shr.u32 bits, bits, 4;\n"
+        "or.b32 bits, bits, 1048576;\n"
+        "cvt.u64.u32 d16, bits;\n"
+        "or.b64 d16, d16, 34359738368;\n"
+        "mad.lo.u32 addr, $" +
+        std::to_string(kStage) + ", 4096, $" +
+        std::to_string(kSmemBase) + ";\n"
+        "add.u32 addr, addr, 16896;\n"
+        "and.b32 bits, addr, 0x3ffff;\n"
+        "shr.u32 bits, bits, 4;\n"
+        "or.b32 bits, bits, 4194304;\n"
+        "cvt.u64.u32 d64, bits;\n"
+        "or.b64 d64, d64, 34359738368;\n"
+        "add.u64 d64hi, d64, 128;\n"
+        "setp.ne.b32 p, $" +
+        std::to_string(kZeroStart) +
+        ", 0;\n@p bra AVELANG_WGMMA_ZERO_${:uid};\n";
+    asmString +=
+        "wgmma.mma_async.sync.aligned.m64n16k16.f32.bf16.bf16 " +
+        registerList(kOut0, kOutputElements) + ", " + a0List +
+        ", d16, 1, 1, 1, 0;\n";
+    asmString +=
+        "wgmma.mma_async.sync.aligned.m64n64k16.f32.bf16.bf16 " +
+        registerList(kState0, kStateElements) + ", " + a0List +
+        ", d64, 1, 1, 1, 0;\n";
+    asmString +=
+        "wgmma.mma_async.sync.aligned.m64n64k16.f32.bf16.bf16 " +
+        registerList(kState1, kStateElements) + ", " + a0List +
+        ", d64hi, 1, 1, 1, 0;\n";
+    asmString +=
+        "wgmma.mma_async.sync.aligned.m64n16k16.f32.bf16.bf16 " +
+        registerList(kOut1, kOutputElements) + ", " + a1List +
+        ", d16, 1, 1, 1, 0;\n";
+    asmString +=
+        "wgmma.mma_async.sync.aligned.m64n64k16.f32.bf16.bf16 " +
+        registerList(kState2, kStateElements) + ", " + a1List +
+        ", d64, 1, 1, 1, 0;\n";
+    asmString +=
+        "wgmma.mma_async.sync.aligned.m64n64k16.f32.bf16.bf16 " +
+        registerList(kState3, kStateElements) + ", " + a1List +
+        ", d64hi, 1, 1, 1, 0;\n"
+        "bra AVELANG_WGMMA_DONE_${:uid};\n"
+        "AVELANG_WGMMA_ZERO_${:uid}:\n";
+    asmString +=
+        "wgmma.mma_async.sync.aligned.m64n64k16.f32.bf16.bf16 " +
+        registerList(kState0, kStateElements) + ", " + a0List +
+        ", d64, 0, 1, 1, 0;\n";
+    asmString +=
+        "wgmma.mma_async.sync.aligned.m64n64k16.f32.bf16.bf16 " +
+        registerList(kState1, kStateElements) + ", " + a0List +
+        ", d64hi, 0, 1, 1, 0;\n";
+    asmString +=
+        "wgmma.mma_async.sync.aligned.m64n64k16.f32.bf16.bf16 " +
+        registerList(kState2, kStateElements) + ", " + a1List +
+        ", d64, 0, 1, 1, 0;\n";
+    asmString +=
+        "wgmma.mma_async.sync.aligned.m64n64k16.f32.bf16.bf16 " +
+        registerList(kState3, kStateElements) + ", " + a1List +
+        ", d64hi, 0, 1, 1, 0;\n"
+        "AVELANG_WGMMA_DONE_${:uid}:\n}";
+
+    std::string constraintString;
+    for (size_t index = 0; index < constraints.size(); ++index) {
+        if (index != 0)
+            constraintString += ",";
+        constraintString += constraints[index];
+    }
+    auto inlineAsm = mlir::LLVM::InlineAsmOp::create(
+        builder, location, structType, operands, asmString, constraintString,
+        /*hasSideEffects=*/true, /*isAlignStack=*/false,
+        mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+
+    auto resultType = mlir::VectorType::get({kResultElements},
+                                            builder.getF32Type());
+    auto zero = mlir::arith::ConstantFloatOp::create(
+        builder, location, builder.getF32Type(), llvm::APFloat(0.0f));
+    mlir::Value result = mlir::vector::BroadcastOp::create(
+        builder, location, resultType, zero);
+    for (int64_t element = 0; element < kResultElements; ++element) {
+        auto value = mlir::LLVM::ExtractValueOp::create(
+            builder, location, builder.getF32Type(), inlineAsm.getRes(),
+            llvm::ArrayRef<int64_t>{element});
+        result = mlir::vector::InsertOp::create(
+            builder, location, value, result, element);
+    }
+    return result;
+}
+
+bool NVVMIntrinsic::CheckWgmmaM64NK16F32BF16BF16RSPredicatedFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args, int64_t n,
+    llvm::StringRef name) const {
+    auto report = [&](llvm::StringRef message) {
+        ctx->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                        call_expr->GetSourceRange().getBegin())
+            << name << " " << message;
+        return false;
+    };
+    if (resolved_args.size() != 5 ||
+        llvm::any_of(resolved_args, [](mlir::Value value) { return !value; })) {
+        return report(
+            "requires A registers, desc_b, accumulator, scale_d, and execute");
+    }
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto isVectorLike = [](mlir::Value value, int64_t elements,
+                           mlir::Type elementType) {
+        if (auto vectorType =
+                mlir::dyn_cast<mlir::VectorType>(value.getType())) {
+            return vectorType.getRank() == 1 &&
+                   vectorType.getNumElements() == elements &&
+                   vectorType.getElementType() == elementType;
+        }
+        if (auto memrefType =
+                mlir::dyn_cast<cf::MemRefType>(value.getType())) {
+            return memrefType.getRank() == 1 &&
+                   memrefType.getShape()[0] == elements &&
+                   memrefType.getElementType() == elementType;
+        }
+        return false;
+    };
+    if (!isVectorLike(resolved_args[0], 4, builder.getI32Type())) {
+        return report("A must be vector<4xi32> containing packed BF16 values");
+    }
+    if (!resolved_args[1].getType().isInteger(64)) {
+        return report("desc_b must be i64 descriptor bits");
+    }
+    if (!isVectorLike(resolved_args[2], n / 2, builder.getF32Type())) {
+        return report("accumulator has the wrong f32 vector width");
+    }
+    auto scaleD = getConstantIntValue(resolved_args[3]);
+    if (!scaleD || (*scaleD != 0 && *scaleD != 1)) {
+        return report("scale_d must be the constant integer 0 or 1");
+    }
+    if (!resolved_args[4].getType().isInteger(32)) {
+        return report("execute must be i32");
+    }
+    return true;
+}
+
+mlir::Value NVVMIntrinsic::CreateWgmmaM64NK16F32BF16BF16RSPredicatedFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args, int64_t n) const {
+    std::string name = "wgmma_m64n" + std::to_string(n) +
+                       "k16_f32_bf16_bf16_rs_predicated";
+    if (!CheckWgmmaM64NK16F32BF16BF16RSPredicatedFunction(
+            call_expr, ctx, resolved_args, n, name)) {
+        return nullptr;
+    }
+
+    const int64_t accumulatorSize = n / 2;
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    llvm::SmallVector<mlir::Value> args(resolved_args.begin(),
+                                        resolved_args.end());
+    auto materializeVector = [&](mlir::Value value, int64_t elements,
+                                 mlir::Type elementType) -> mlir::Value {
+        if (mlir::isa<mlir::VectorType>(value.getType())) {
+            return value;
+        }
+        auto memrefType = mlir::cast<cf::MemRefType>(value.getType());
+        auto vectorType = mlir::VectorType::get({elements}, elementType);
+        llvm::SmallVector<mlir::Value> indices;
+        for (int64_t i = 0; i < memrefType.getRank(); ++i) {
+            indices.push_back(mlir::arith::ConstantIndexOp::create(
+                builder, location, 0));
+        }
+        return cf::AveLangMemRefLoadVecOp::create(
+                   builder, location, vectorType, value, indices)
+            .getResult();
+    };
+    args[0] = materializeVector(args[0], 4, builder.getI32Type());
+    args[2] = materializeVector(args[2], accumulatorSize,
+                                builder.getF32Type());
+
+    llvm::SmallVector<mlir::Type> elementTypes(accumulatorSize,
+                                               builder.getF32Type());
+    auto structType = mlir::LLVM::LLVMStructType::getLiteral(
+        builder.getContext(), elementTypes);
+    llvm::SmallVector<mlir::Value> operands;
+    for (int64_t i = 0; i < 4; ++i) {
+        operands.push_back(mlir::vector::ExtractOp::create(
+            builder, location, args[0], i));
+    }
+    operands.push_back(args[1]);
+    operands.push_back(args[4]);
+    llvm::SmallVector<std::string> constraints(accumulatorSize, "=f");
+    constraints.insert(constraints.end(), 4, "r");
+    constraints.push_back("l");
+    constraints.push_back("r");
+    for (int64_t i = 0; i < accumulatorSize; ++i) {
+        operands.push_back(mlir::vector::ExtractOp::create(
+            builder, location, args[2], i));
+        constraints.push_back(std::to_string(i));
+    }
+
+    std::string asmString = "{ .reg .pred p; setp.ne.b32 p, $" +
+                            std::to_string(accumulatorSize + 5) + ", 0;\n@p " +
+                            "wgmma.mma_async.sync.aligned.m64n" +
+                            std::to_string(n) +
+                            "k16.f32.bf16.bf16 {";
+    for (int64_t i = 0; i < accumulatorSize; ++i) {
+        if (i != 0)
+            asmString += ", ";
+        asmString += "$" + std::to_string(i);
+    }
+    asmString += "}, {$" + std::to_string(accumulatorSize) + ", $" +
+                 std::to_string(accumulatorSize + 1) + ", $" +
+                 std::to_string(accumulatorSize + 2) + ", $" +
+                 std::to_string(accumulatorSize + 3) + "}, $" +
+                 std::to_string(accumulatorSize + 4) + ", " +
+                 std::to_string(*getConstantIntValue(args[3])) +
+                 ", 1, 1, 1;\n}";
+
+    std::string constraintString;
+    for (size_t i = 0; i < constraints.size(); ++i) {
+        if (i != 0)
+            constraintString += ",";
+        constraintString += constraints[i];
+    }
+    auto inlineAsm = mlir::LLVM::InlineAsmOp::create(
+        builder, location, structType, operands, asmString, constraintString,
+        /*hasSideEffects=*/true, /*isAlignStack=*/false,
+        mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+
+    auto resultType = mlir::cast<mlir::VectorType>(args[2].getType());
+    auto zero = mlir::arith::ConstantFloatOp::create(
+        builder, location, builder.getF32Type(), llvm::APFloat(0.0f));
+    mlir::Value result =
+        mlir::vector::BroadcastOp::create(builder, location, resultType, zero);
+    for (int64_t i = 0; i < accumulatorSize; ++i) {
+        auto element = mlir::LLVM::ExtractValueOp::create(
+            builder, location, builder.getF32Type(), inlineAsm.getRes(),
+            llvm::ArrayRef<int64_t>{i});
+        result = mlir::vector::InsertOp::create(builder, location, element,
+                                                result, i);
+    }
+    return result;
 }
 
 mlir::Value NVVMIntrinsic::CreateWgmmaM64N192K32F32E4M3E4M3Function(
@@ -5259,6 +6533,219 @@ mlir::Value NVVMIntrinsic::CreateStoreGlobalV4U32Function(
         ->CreateVoidValue();
 }
 
+mlir::Value NVVMIntrinsic::CreateLoadSharedV4U32Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+
+    if (!CheckLoadSharedV4U32Function(call_expr, ctx, resolved_args)) {
+        return nullptr;
+    }
+    auto pointer = createPointerFromMemRef(
+        builder, location, resolved_args[0], resolved_args[1],
+        mlir::NVVM::NVVMMemorySpace::Shared);
+    llvm::SmallVector<mlir::Type> elementTypes(4, builder.getI32Type());
+    auto structType = mlir::LLVM::LLVMStructType::getLiteral(
+        builder.getContext(), elementTypes);
+    auto inlineAsm = mlir::LLVM::InlineAsmOp::create(
+        builder, location, structType, mlir::ValueRange{pointer},
+        "ld.shared.v4.u32 {$0, $1, $2, $3}, [$4];",
+        "=r,=r,=r,=r,r,~{memory}", /*hasSideEffects=*/true,
+        /*isAlignStack=*/false,
+        mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+    auto vectorType = mlir::VectorType::get({4}, builder.getI32Type());
+    auto zero = mlir::arith::ConstantIntOp::create(builder, location, 0, 32);
+    mlir::Value result = mlir::vector::BroadcastOp::create(
+        builder, location, vectorType, zero);
+    for (int64_t index = 0; index < 4; ++index) {
+        auto value = mlir::LLVM::ExtractValueOp::create(
+            builder, location, builder.getI32Type(), inlineAsm.getRes(),
+            llvm::ArrayRef<int64_t>{index});
+        result = mlir::vector::InsertOp::create(builder, location, value,
+                                                result, index);
+    }
+    return result;
+}
+
+mlir::Value NVVMIntrinsic::CreateCopySharedToGlobalV4U32Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+
+    if (!CheckCopySharedToGlobalV4U32Function(call_expr, ctx, resolved_args)) {
+        return nullptr;
+    }
+    auto globalPointer = createPointerFromMemRef(
+        builder, location, resolved_args[0], resolved_args[1],
+        mlir::NVVM::NVVMMemorySpace::Global);
+    auto sharedPointer = createPointerFromMemRef(
+        builder, location, resolved_args[2], resolved_args[3],
+        mlir::NVVM::NVVMMemorySpace::Shared);
+    mlir::LLVM::InlineAsmOp::create(
+        builder, location, mlir::TypeRange{},
+        mlir::ValueRange{globalPointer, sharedPointer},
+        "{ .reg .b32 data<4>;\n"
+        "ld.shared.v4.u32 {data0, data1, data2, data3}, [$1];\n"
+        "st.global.v4.u32 [$0], {data0, data1, data2, data3};\n}",
+        "l,r,~{memory}", /*hasSideEffects=*/true,
+        /*isAlignStack=*/false,
+        mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+    return ctx->GetCurrentFunctionGenerator()
+        ->GetExprGenerator()
+        ->CreateVoidValue();
+}
+
+mlir::Value NVVMIntrinsic::CreateDrainKDAOutputFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (!CheckDrainKDAOutputFunction(call_expr, ctx, resolved_args)) {
+        return nullptr;
+    }
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    auto zero = createDefaultIndex(builder, location);
+    auto globalPointer = createPointerFromMemRef(
+        builder, location, resolved_args[0], zero,
+        mlir::NVVM::NVVMMemorySpace::Global);
+    auto sharedPointer = createPointerFromMemRef(
+        builder, location, resolved_args[1], zero,
+        mlir::NVVM::NVVMMemorySpace::Shared);
+    llvm::SmallVector<mlir::Value> operands{globalPointer, sharedPointer};
+    for (size_t index = 2; index < 5; ++index) {
+        operands.push_back(castIntegerTo(builder, location,
+                                         resolved_args[index],
+                                         builder.getI32Type()));
+    }
+    const int64_t heads = *getConstantIntValue(resolved_args[5]);
+    const int64_t secondHalfBytes = heads * 8 * 128 * 2;
+    std::string asmString =
+        "{ .reg .b32 token, channel, offset, saddr, data<4>; "
+        ".reg .b64 goffset, gaddr;\n"
+        "shr.u32 token, $3, 4;\n"
+        "and.b32 channel, $3, 15;\n"
+        "shl.b32 channel, channel, 4;\n"
+        "mad.lo.u32 offset, $2, 16, token;\n"
+        "mad.lo.u32 offset, offset, " +
+        std::to_string(heads) +
+        ", $4;\n"
+        "shl.b32 offset, offset, 8;\n"
+        "add.u32 offset, offset, channel;\n"
+        "cvt.u64.u32 goffset, offset;\n"
+        "add.u64 gaddr, $0, goffset;\n"
+        "mad.lo.u32 saddr, token, 272, channel;\n"
+        "add.u32 saddr, $1, saddr;\n"
+        "ld.shared.v4.u32 {data0, data1, data2, data3}, [saddr];\n"
+        "st.global.v4.u32 [gaddr], {data0, data1, data2, data3};\n"
+        "ld.shared.v4.u32 {data0, data1, data2, data3}, [saddr+2176];\n"
+        "st.global.v4.u32 [gaddr+" +
+        std::to_string(secondHalfBytes) +
+        "], {data0, data1, data2, data3};\n}";
+    mlir::LLVM::InlineAsmOp::create(
+        builder, location, mlir::TypeRange{}, operands, asmString,
+        "l,r,r,r,r,~{memory}", /*hasSideEffects=*/true,
+        /*isAlignStack=*/false,
+        mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+    return ctx->GetCurrentFunctionGenerator()
+        ->GetExprGenerator()
+        ->CreateVoidValue();
+}
+
+mlir::Value NVVMIntrinsic::CreateStoreKDAFactorBlockFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    if (!CheckStoreKDAFactorBlockFunction(call_expr, ctx, resolved_args)) {
+        return nullptr;
+    }
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+    auto materializeVector = [&](mlir::Value value) -> mlir::Value {
+        if (mlir::isa<mlir::VectorType>(value.getType())) {
+            return value;
+        }
+        auto vectorType = mlir::VectorType::get({4}, builder.getF32Type());
+        auto zero = mlir::arith::ConstantIndexOp::create(builder, location, 0);
+        return cf::AveLangMemRefLoadVecOp::create(
+                   builder, location, vectorType, value,
+                   mlir::ValueRange{zero})
+            .getResult();
+    };
+    auto result = materializeVector(resolved_args[6]);
+    llvm::SmallVector<mlir::Value> operands;
+    for (size_t index = 0; index < 6; ++index) {
+        operands.push_back(castIntegerTo(builder, location,
+                                         resolved_args[index],
+                                         builder.getI32Type()));
+    }
+    for (int64_t element = 0; element < 4; ++element) {
+        operands.push_back(mlir::vector::ExtractOp::create(
+            builder, location, result, element));
+    }
+
+    const int64_t side = *getConstantIntValue(resolved_args[7]);
+    const int64_t kind = *getConstantIntValue(resolved_args[8]);
+    std::string asmString =
+        "{ .reg .b32 channel, tmp, addr, packed; .reg .f32 lo, hi;\n"
+        "shl.b32 channel, $3, 5;\n"
+        "shl.b32 tmp, $2, 4;\n"
+        "add.u32 channel, channel, tmp;\n"
+        "shl.b32 tmp, $5, 1;\n"
+        "add.u32 channel, channel, tmp;\n";
+    if (side != 0) {
+        asmString += "add.u32 channel, channel, 8;\n";
+    }
+    llvm::SmallVector<int64_t> offsets;
+    if (kind == 0) {
+        asmString +=
+            "shr.u32 addr, channel, 3;\n"
+            "shl.b32 addr, addr, 8;\n"
+            "shl.b32 tmp, $4, 4;\n"
+            "add.u32 addr, addr, tmp;\n"
+            "and.b32 tmp, channel, 7;\n"
+            "shl.b32 tmp, tmp, 1;\n"
+            "add.u32 addr, addr, tmp;\n"
+            "mad.lo.u32 tmp, $1, 4096, $0;\n"
+            "add.u32 addr, addr, tmp;\n";
+        offsets = {0, 128};
+    } else {
+        asmString +=
+            "mad.lo.u32 addr, $4, 272, channel;\n"
+            "mad.lo.u32 tmp, $1, 4352, $0;\n"
+            "add.u32 addr, addr, tmp;\n"
+            "add.u32 addr, addr, 26112;\n";
+        offsets = {0, 2176};
+    }
+    for (int64_t pair = 0; pair < 2; ++pair) {
+        const int64_t lo = 6 + 2 * pair;
+        const int64_t hi = lo + 1;
+        if (kind == 0) {
+            asmString += "neg.f32 lo, $" + std::to_string(lo) +
+                         ";\nneg.f32 hi, $" + std::to_string(hi) +
+                         ";\ncvt.rn.bf16x2.f32 packed, hi, lo;\n";
+        } else {
+            asmString += "cvt.rn.bf16x2.f32 packed, $" +
+                         std::to_string(hi) + ", $" +
+                         std::to_string(lo) + ";\n";
+        }
+        asmString += "st.shared.u32 [addr+" +
+                     std::to_string(offsets[pair]) + "], packed;\n";
+    }
+    asmString += "}";
+    mlir::LLVM::InlineAsmOp::create(
+        builder, location, mlir::TypeRange{}, operands, asmString,
+        "r,r,r,r,r,r,f,f,f,f,~{memory}",
+        /*hasSideEffects=*/true, /*isAlignStack=*/false,
+        mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+    return ctx->GetCurrentFunctionGenerator()
+        ->GetExprGenerator()
+        ->CreateVoidValue();
+}
+
 bool NVVMIntrinsic::CheckStoreGlobalV4U32Function(
     ast::Call *call_expr, GeneratorContext *ctx,
     llvm::ArrayRef<mlir::Value> resolved_args) const {
@@ -5278,6 +6765,131 @@ bool NVVMIntrinsic::CheckStoreGlobalV4U32Function(
             call_expr->GetSourceRange().getBegin())
             << "store_global_v4_u32 requires a destination tensor, byte "
                "offset, and vector<4xi32> value";
+    }
+    return valid;
+}
+
+bool NVVMIntrinsic::CheckLoadSharedV4U32Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    bool valid = resolved_args.size() == 2 && resolved_args[0] &&
+                 isMemRefLike(resolved_args[0].getType()) &&
+                 resolved_args[1] &&
+                 resolved_args[1].getType().isIntOrIndex();
+    if (valid) {
+        auto memrefType =
+            mlir::dyn_cast<cf::MemRefType>(resolved_args[0].getType());
+        auto gpuSpace = mlir::gpu::AddressSpaceAttr::get(
+            ctx->GetCurrentFunctionGenerator()->GetBuilder().getContext(),
+            mlir::gpu::AddressSpace::Workgroup);
+        valid = memrefType && memrefType.getMemorySpace() == gpuSpace;
+    }
+    if (!valid) {
+        ctx->diagnostic_manager->Report(
+            basic::DiagnosticCode::kUnimplemented,
+            call_expr->GetSourceRange().getBegin())
+            << "load_shared_v4_u32 requires a shared tensor and byte offset";
+    }
+    return valid;
+}
+
+bool NVVMIntrinsic::CheckCopySharedToGlobalV4U32Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    bool valid = resolved_args.size() == 4 && resolved_args[0] &&
+                 isMemRefLike(resolved_args[0].getType()) &&
+                 resolved_args[1] &&
+                 resolved_args[1].getType().isIntOrIndex() &&
+                 resolved_args[2] &&
+                 isMemRefLike(resolved_args[2].getType()) &&
+                 resolved_args[3] &&
+                 resolved_args[3].getType().isIntOrIndex();
+    if (valid) {
+        auto memrefType =
+            mlir::dyn_cast<cf::MemRefType>(resolved_args[2].getType());
+        auto gpuSpace = mlir::gpu::AddressSpaceAttr::get(
+            ctx->GetCurrentFunctionGenerator()->GetBuilder().getContext(),
+            mlir::gpu::AddressSpace::Workgroup);
+        valid = memrefType && memrefType.getMemorySpace() == gpuSpace;
+    }
+    if (!valid) {
+        ctx->diagnostic_manager->Report(
+            basic::DiagnosticCode::kUnimplemented,
+            call_expr->GetSourceRange().getBegin())
+            << "copy_shared_to_global_v4_u32 requires global/shared tensors "
+               "and byte offsets";
+    }
+    return valid;
+}
+
+bool NVVMIntrinsic::CheckDrainKDAOutputFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    bool valid = resolved_args.size() == 6 && resolved_args[0] &&
+                 isMemRefLike(resolved_args[0].getType()) &&
+                 resolved_args[1] && isMemRefLike(resolved_args[1].getType());
+    if (valid) {
+        auto memrefType =
+            mlir::dyn_cast<cf::MemRefType>(resolved_args[1].getType());
+        auto gpuSpace = mlir::gpu::AddressSpaceAttr::get(
+            ctx->GetCurrentFunctionGenerator()->GetBuilder().getContext(),
+            mlir::gpu::AddressSpace::Workgroup);
+        valid = memrefType && memrefType.getMemorySpace() == gpuSpace;
+        for (size_t index = 2; index < 5; ++index) {
+            valid = valid && resolved_args[index] &&
+                    resolved_args[index].getType().isIntOrIndex();
+        }
+        auto heads = getConstantIntValue(resolved_args[5]);
+        valid = valid && heads && *heads > 0;
+    }
+    if (!valid) {
+        ctx->diagnostic_manager->Report(
+            basic::DiagnosticCode::kUnimplemented,
+            call_expr->GetSourceRange().getBegin())
+            << "drain_kda_output requires global/shared tensors, pending, "
+               "thread, and head integer indices, and a positive constant "
+               "head count";
+    }
+    return valid;
+}
+
+bool NVVMIntrinsic::CheckStoreKDAFactorBlockFunction(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto isF32x4 = [&](mlir::Value value) {
+        if (!value)
+            return false;
+        if (auto vectorType = mlir::dyn_cast<mlir::VectorType>(value.getType())) {
+            return vectorType.getRank() == 1 &&
+                   vectorType.getNumElements() == 4 &&
+                   vectorType.getElementType().isF32();
+        }
+        if (auto memrefType = mlir::dyn_cast<cf::MemRefType>(value.getType())) {
+            return memrefType.getRank() == 1 &&
+                   memrefType.getShape()[0] == 4 &&
+                   memrefType.getElementType() == builder.getF32Type();
+        }
+        return false;
+    };
+    bool valid = resolved_args.size() == 9;
+    if (valid) {
+        for (size_t index = 0; index < 6; ++index) {
+            valid = valid && resolved_args[index] &&
+                    resolved_args[index].getType().isIntOrIndex();
+        }
+        valid = valid && isF32x4(resolved_args[6]);
+        auto side = getConstantIntValue(resolved_args[7]);
+        auto kind = getConstantIntValue(resolved_args[8]);
+        valid = valid && side && (*side == 0 || *side == 1) && kind &&
+                (*kind == 0 || *kind == 1);
+    }
+    if (!valid) {
+        ctx->diagnostic_manager->Report(
+            basic::DiagnosticCode::kUnimplemented,
+            call_expr->GetSourceRange().getBegin())
+            << "store_kda_factor_block requires six integer indices, a 4xf32 "
+               "value, and constant side/kind values (0 or 1)";
     }
     return valid;
 }

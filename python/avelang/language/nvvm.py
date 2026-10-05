@@ -17,6 +17,10 @@ def shared_address(ptr):
     pass
 
 
+def opaque_i32(value):
+    pass
+
+
 def ldmatrix_m8n8_x1_b16(ptr):
     pass
 
@@ -38,6 +42,12 @@ def ldmatrix_m8n8_x4_b16(ptr):
 
 
 def ldmatrix_m8n8_x4_b16_trans(ptr):
+    pass
+
+
+def ldmatrix_m8n8_x4_b16_kda_factors(
+    smem_base, raw_stage, matrix_row, matrix_col, warp
+):
     pass
 
 
@@ -167,7 +177,45 @@ def wgmma_m64n192k16_f32_bf16_bf16(desc_a, desc_b, acc, scale_d: int):
     pass
 
 
+def wgmma_m64n16k16_f32_bf16_bf16_rs(a, desc_b, acc, scale_d: int):
+    pass
+
+
+def wgmma_m64n64k16_f32_bf16_bf16_rs(a, desc_b, acc, scale_d: int):
+    pass
+
+
 def wgmma_m64n128k16_f32_bf16_bf16_rs(a, desc_b, acc, scale_d: int):
+    pass
+
+
+def wgmma_m64n16k16_f32_bf16_bf16_rs_smem_x8(
+    a,
+    smem_base,
+    stage,
+    acc,
+    scale_d: int,
+    base_byte_offset: int,
+    stage_byte_stride: int,
+    leading_byte_offset: int,
+    descriptor_step: int,
+):
+    pass
+
+
+def wgmma_m64n16x2_m64n64x4_k16_f32_bf16_bf16_rs_branch(
+    a0,
+    a1,
+    smem_base,
+    stage,
+    out_acc0,
+    out_acc1,
+    state_acc0,
+    state_acc1,
+    state_acc2,
+    state_acc3,
+    zero_start,
+):
     pass
 
 
@@ -345,6 +393,10 @@ def cp_async_bulk_global_shared_cta(
 
 
 def store_global_v4_u32(dst, dst_offset_bytes, value):
+    pass
+
+
+def drain_kda_output(dst, src, pending, tid, head, heads: int):
     pass
 
 
