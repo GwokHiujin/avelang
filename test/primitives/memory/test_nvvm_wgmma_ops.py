@@ -212,6 +212,76 @@ def kernel_nvvm_raw_wgmma_bf16(
 
 
 @avelang.jit
+def kernel_nvvm_wgmma_bf16_rs_n16(
+    a_regs: S.Tensor((128, 4), S.i32),
+    b: S.Tensor((16, 128), S.bf16),
+    out: S.Tensor((128, 8), S.f32),
+):
+    tid = S.thread_id(0)
+    b_shared = S.make_shared((16, 128), S.bf16, 128)
+    for i in S.range(16):
+        idx = tid + i * 128
+        row = idx // 128
+        col = idx % 128
+        swizzled_col = col
+        if (row // 4) % 2 == 1:
+            if col % 16 < 8:
+                swizzled_col = col + 8
+            else:
+                swizzled_col = col - 8
+        b_shared[row, swizzled_col] = b[row, col]
+
+    S.syncthreads()
+    desc_b = S.nvvm.make_wgmma_descriptor_bits(
+        b_shared, WGMMA_SWIZZLE_32B, 0, 0, 0
+    )
+    result = S.nvvm.wgmma_init_result(8)
+    S.nvvm.wgmma_fence_aligned()
+    result = S.nvvm.wgmma_m64n16k16_f32_bf16_bf16_rs(
+        a_regs[tid], desc_b, result, 0
+    )
+    S.nvvm.wgmma_group_sync_aligned()
+    S.nvvm.wgmma_wait_group_sync(0)
+    for i in S.range(8):
+        out[tid, i] = result[i]
+
+
+@avelang.jit
+def kernel_nvvm_wgmma_bf16_rs_n64(
+    a_regs: S.Tensor((128, 4), S.i32),
+    b: S.Tensor((16, 128), S.bf16),
+    out: S.Tensor((128, 32), S.f32),
+):
+    tid = S.thread_id(0)
+    b_shared = S.make_shared((16, 128), S.bf16, 128)
+    for i in S.range(16):
+        idx = tid + i * 128
+        row = idx // 128
+        col = idx % 128
+        swizzled_col = col
+        if (row // 4) % 2 == 1:
+            if col % 16 < 8:
+                swizzled_col = col + 8
+            else:
+                swizzled_col = col - 8
+        b_shared[row, swizzled_col] = b[row, col]
+
+    S.syncthreads()
+    desc_b = S.nvvm.make_wgmma_descriptor_bits(
+        b_shared, WGMMA_SWIZZLE_32B, 0, 0, 0
+    )
+    result = S.nvvm.wgmma_init_result(32)
+    S.nvvm.wgmma_fence_aligned()
+    result = S.nvvm.wgmma_m64n64k16_f32_bf16_bf16_rs(
+        a_regs[tid], desc_b, result, 0
+    )
+    S.nvvm.wgmma_group_sync_aligned()
+    S.nvvm.wgmma_wait_group_sync(0)
+    for i in S.range(32):
+        out[tid, i] = result[i]
+
+
+@avelang.jit
 def kernel_nvvm_wgmma_bf16_rs(
     a_regs: S.Tensor((128, 4), S.i32),
     b: S.Tensor((16, 128), S.bf16),
@@ -396,13 +466,16 @@ class TestNVVMWGMMAOps(unittest.TestCase):
             (128, 4), packed_bf16_ones, dtype=torch.int32, device=device
         )
         b = torch.ones((16, 128), dtype=torch.bfloat16, device=device)
-        out = torch.zeros((128, 64), dtype=torch.float32, device=device)
-
-        kernel_nvvm_wgmma_bf16_rs[
-            lambda: ((1, 1, 1), (128, 1, 1))
-        ](a_regs, b, out)
-
-        self.assertTrue(torch.equal(out.cpu(), torch.full((128, 64), 16.0)))
+        for kernel, width in (
+            (kernel_nvvm_wgmma_bf16_rs_n16, 8),
+            (kernel_nvvm_wgmma_bf16_rs_n64, 32),
+            (kernel_nvvm_wgmma_bf16_rs, 64),
+        ):
+            out = torch.zeros((128, width), dtype=torch.float32, device=device)
+            kernel[lambda: ((1, 1, 1), (128, 1, 1))](a_regs, b, out)
+            self.assertTrue(
+                torch.equal(out.cpu(), torch.full((128, width), 16.0))
+            )
 
     def test_wgmma_fp8_e4m3_scale_d(self):
         device_idx = get_wgmma_device()
