@@ -580,6 +580,10 @@ class NVVMIntrinsic : public NamedModule {
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
+    mlir::Value CreateLoadSharedV2F32Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
     mlir::Value CreateCopySharedToGlobalV4U32Function(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
@@ -738,6 +742,10 @@ class NVVMIntrinsic : public NamedModule {
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
     bool CheckLoadSharedV4U32Function(
+        ast::Call *call_expr, GeneratorContext *ctx,
+        llvm::ArrayRef<mlir::Value> resolved_args) const;
+
+    bool CheckLoadSharedV2F32Function(
         ast::Call *call_expr, GeneratorContext *ctx,
         llvm::ArrayRef<mlir::Value> resolved_args) const;
 
@@ -1582,6 +1590,19 @@ void NVVMIntrinsic::Initialize() {
                llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
             return CheckStoreGlobalV4U32Function(call_expr, gen_ctx,
                                                  resolved_args);
+        });
+
+    AddFunction(
+        "load_shared_v2_f32",
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> mlir::Value {
+            return CreateLoadSharedV2F32Function(call_expr, gen_ctx,
+                                                 resolved_args);
+        },
+        [this](ast::Call *call_expr, GeneratorContext *gen_ctx,
+               llvm::ArrayRef<mlir::Value> resolved_args) -> bool {
+            return CheckLoadSharedV2F32Function(call_expr, gen_ctx,
+                                                resolved_args);
         });
 
     AddFunction(
@@ -4427,10 +4448,28 @@ mlir::Value NVVMIntrinsic::CreateF32FmaFunction(
     }
 
     auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    llvm::SmallVector<mlir::Value> operands(resolved_args.begin(),
+                                            resolved_args.end());
+    bool negateMultiplicand = false;
+    if (auto negate = operands[0].getDefiningOp<mlir::arith::NegFOp>()) {
+        operands[0] = negate.getOperand();
+        negateMultiplicand = true;
+    }
+    llvm::StringRef instruction;
+    if (fast) {
+        instruction = negateMultiplicand
+                          ? "{ .reg .f32 neg_a; neg.f32 neg_a, $1; "
+                            "fma.rn.ftz.f32 $0, neg_a, $2, $3; }"
+                          : "fma.rn.ftz.f32 $0, $1, $2, $3;";
+    } else {
+        instruction = negateMultiplicand
+                          ? "{ .reg .f32 neg_a; neg.f32 neg_a, $1; "
+                            "fma.rn.f32 $0, neg_a, $2, $3; }"
+                          : "fma.rn.f32 $0, $1, $2, $3;";
+    }
     auto inlineAsm = mlir::LLVM::InlineAsmOp::create(
-        builder, builder.getUnknownLoc(), builder.getF32Type(), resolved_args,
-        fast ? "fma.rn.ftz.f32 $0, $1, $2, $3;"
-             : "fma.rn.f32 $0, $1, $2, $3;",
+        builder, builder.getUnknownLoc(), builder.getF32Type(), operands,
+        instruction,
         "=f,f,f,f",
         /*hasSideEffects=*/false, /*isAlignStack=*/false,
         mlir::LLVM::tailcallkind::TailCallKind::None,
@@ -6569,6 +6608,42 @@ mlir::Value NVVMIntrinsic::CreateLoadSharedV4U32Function(
     return result;
 }
 
+mlir::Value NVVMIntrinsic::CreateLoadSharedV2F32Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    auto &builder = ctx->GetCurrentFunctionGenerator()->GetBuilder();
+    auto location = builder.getUnknownLoc();
+
+    if (!CheckLoadSharedV2F32Function(call_expr, ctx, resolved_args)) {
+        return nullptr;
+    }
+    auto pointer = createPointerFromMemRef(
+        builder, location, resolved_args[0], resolved_args[1],
+        mlir::NVVM::NVVMMemorySpace::Shared);
+    llvm::SmallVector<mlir::Type> elementTypes(2, builder.getF32Type());
+    auto structType = mlir::LLVM::LLVMStructType::getLiteral(
+        builder.getContext(), elementTypes);
+    auto inlineAsm = mlir::LLVM::InlineAsmOp::create(
+        builder, location, structType, mlir::ValueRange{pointer},
+        "ld.shared.v2.f32 {$0, $1}, [$2];", "=f,=f,r,~{memory}",
+        /*hasSideEffects=*/true, /*isAlignStack=*/false,
+        mlir::LLVM::tailcallkind::TailCallKind::None,
+        mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
+    auto vectorType = mlir::VectorType::get({2}, builder.getF32Type());
+    auto zero = mlir::arith::ConstantFloatOp::create(
+        builder, location, builder.getF32Type(), llvm::APFloat(0.0f));
+    mlir::Value result = mlir::vector::BroadcastOp::create(
+        builder, location, vectorType, zero);
+    for (int64_t index = 0; index < 2; ++index) {
+        auto value = mlir::LLVM::ExtractValueOp::create(
+            builder, location, builder.getF32Type(), inlineAsm.getRes(),
+            llvm::ArrayRef<int64_t>{index});
+        result = mlir::vector::InsertOp::create(builder, location, value,
+                                                result, index);
+    }
+    return result;
+}
+
 mlir::Value NVVMIntrinsic::CreateCopySharedToGlobalV4U32Function(
     ast::Call *call_expr, GeneratorContext *ctx,
     llvm::ArrayRef<mlir::Value> resolved_args) const {
@@ -6789,6 +6864,32 @@ bool NVVMIntrinsic::CheckLoadSharedV4U32Function(
             basic::DiagnosticCode::kUnimplemented,
             call_expr->GetSourceRange().getBegin())
             << "load_shared_v4_u32 requires a shared tensor and byte offset";
+    }
+    return valid;
+}
+
+bool NVVMIntrinsic::CheckLoadSharedV2F32Function(
+    ast::Call *call_expr, GeneratorContext *ctx,
+    llvm::ArrayRef<mlir::Value> resolved_args) const {
+    bool valid = resolved_args.size() == 2 && resolved_args[0] &&
+                 isMemRefLike(resolved_args[0].getType()) &&
+                 resolved_args[1] &&
+                 resolved_args[1].getType().isIntOrIndex();
+    if (valid) {
+        auto memrefType =
+            mlir::dyn_cast<cf::MemRefType>(resolved_args[0].getType());
+        auto gpuSpace = mlir::gpu::AddressSpaceAttr::get(
+            ctx->GetCurrentFunctionGenerator()->GetBuilder().getContext(),
+            mlir::gpu::AddressSpace::Workgroup);
+        valid = memrefType && memrefType.getMemorySpace() == gpuSpace &&
+                memrefType.getElementType().isF32();
+    }
+    if (!valid) {
+        ctx->diagnostic_manager->Report(
+            basic::DiagnosticCode::kUnimplemented,
+            call_expr->GetSourceRange().getBegin())
+            << "load_shared_v2_f32 requires a shared f32 tensor and byte "
+               "offset";
     }
     return valid;
 }

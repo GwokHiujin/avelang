@@ -17,6 +17,10 @@ def shared_address(ptr):
     pass
 
 
+def load_shared_v2_f32(ptr, offset_bytes):
+    pass
+
+
 def opaque_i32(value):
     pass
 
