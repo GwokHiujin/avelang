@@ -63,11 +63,32 @@ def kernel_syncwarp(out: S.Tensor((32,), S.i32), mask: S.i32):
 
 
 @avelang.jit
+def kernel_load_shared_v2_f32(out: S.Tensor((2,), S.f32)):
+    shared = S.make_shared((4,), S.f32)
+    shared[0] = S.convert(99.0, S.f32)
+    shared[1] = S.convert(98.0, S.f32)
+    shared[2] = S.convert(1.5, S.f32)
+    shared[3] = S.convert(-2.25, S.f32)
+    S.syncthreads()
+    values = S.nvvm.load_shared_v2_f32(shared, 8)
+    out[0] = values[0]
+    out[1] = values[1]
+
+
+@avelang.jit
 def kernel_fma(out: S.Tensor((1,), S.f32)):
     a = S.convert(2.0, S.f32)
     b = S.convert(3.0, S.f32)
     c = S.convert(4.0, S.f32)
     out[0] = S.nvvm.fma(a, b, c)
+
+
+@avelang.jit
+def kernel_fma_negated_multiplicand(out: S.Tensor((1,), S.f32)):
+    a = S.convert(S.thread_id(0) + 2, S.f32)
+    b = S.convert(3.0, S.f32)
+    c = S.convert(4.0, S.f32)
+    out[0] = S.nvvm.fma(-a, b, c)
 
 
 @avelang.jit
@@ -129,6 +150,17 @@ class TestNVVMWarpOps(unittest.TestCase):
         expected = torch.roll(torch.arange(32, dtype=torch.int32), -1)
         self.assertTrue(torch.equal(out.cpu(), expected))
 
+    def test_load_shared_v2_f32(self):
+        device_idx = get_hopper_device()
+        assert device_idx is not None
+        torch.cuda.set_device(device_idx)
+        out = torch.empty((2,), dtype=torch.float32, device=f"cuda:{device_idx}")
+
+        kernel_load_shared_v2_f32[lambda: ((1, 1, 1), (1, 1, 1))](out)
+
+        expected = torch.tensor([1.5, -2.25], dtype=torch.float32)
+        self.assertTrue(torch.equal(out.cpu(), expected))
+
     def test_fma(self):
         device_idx = get_hopper_device()
         assert device_idx is not None
@@ -138,6 +170,16 @@ class TestNVVMWarpOps(unittest.TestCase):
         kernel_fma[lambda: ((1, 1, 1), (1, 1, 1))](out)
 
         self.assertEqual(out.item(), 10.0)
+
+    def test_fma_negated_multiplicand(self):
+        device_idx = get_hopper_device()
+        assert device_idx is not None
+        torch.cuda.set_device(device_idx)
+        out = torch.zeros((1,), dtype=torch.float32, device=f"cuda:{device_idx}")
+
+        kernel_fma_negated_multiplicand[lambda: ((1, 1, 1), (1, 1, 1))](out)
+
+        self.assertEqual(out.item(), -2.0)
 
     def test_fast_log2(self):
         device_idx = get_hopper_device()
