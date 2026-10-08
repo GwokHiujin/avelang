@@ -134,6 +134,30 @@ FunctionGenerator::GetMLIRLocation(clang::SourceLocation loc) const {
 
 mlir::ModuleOp FunctionGenerator::GetModule() const { return parent_.module_; }
 
+mlir::Value FunctionGenerator::MaterializeConstexpr(
+    llvm::StringRef name, const ConstexprValue &value,
+    mlir::Location location) {
+    auto existing = materialized_constexprs_.find(name.str());
+    if (existing != materialized_constexprs_.end()) {
+        return existing->second;
+    }
+    if (!entry_block_ || !value) {
+        return mlir::Value();
+    }
+
+    mlir::OpBuilder::InsertionGuard guard(builder_);
+    if (auto *terminator = entry_block_->getTerminator()) {
+        builder_.setInsertionPoint(terminator);
+    } else {
+        builder_.setInsertionPointToEnd(entry_block_);
+    }
+    auto materialized =
+        mlir::arith::ConstantOp::create(builder_, location, value.attribute);
+    SetTypeInfo(materialized, value.type_info);
+    materialized_constexprs_.emplace(name.str(), materialized);
+    return materialized;
+}
+
 mlir::Value FunctionGenerator::GenerateExpr(ast::Expr *expr) {
     if (!expr) {
         return mlir::Value();
