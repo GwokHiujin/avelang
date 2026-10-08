@@ -3,11 +3,9 @@
 #include "AST/ast_nodes_expr.h"
 #include "AST/ast_nodes_stmt.h"
 #include "Dialect/AveLang/IR/AveLangOps.h"
-#include "constant_folder.h"
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wambiguous-reversed-operator"
-#include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Operation.h>
@@ -125,6 +123,9 @@ MangleConstexprValueTag(const ConstexprValue &value) {
     std::string type = MangleType(value.GetType());
     if (auto intValue =
             mlir::dyn_cast<mlir::IntegerAttr>(value.attribute)) {
+        if (value.GetType().isInteger(1)) {
+            return type + "_" + (intValue.getValue().isZero() ? "0" : "1");
+        }
         llvm::SmallString<32> storage;
         bool isUnsigned =
             value.type_info.is_unsigned_integer.value_or(false);
