@@ -56,6 +56,11 @@ def helper_constexpr_bool_value(flag: S.constexpr) -> S.u32:
 
 
 @avelang.jit
+def helper_constexpr_float_value(value: S.constexpr) -> S.f32:
+    return S.convert(value, S.f32)
+
+
+@avelang.jit
 def kernel_constexpr_return_helper(
     out: S.Tensor((4,), S.f32),
     kHighPrecision: S.constexpr,
@@ -93,6 +98,12 @@ def kernel_constexpr_call_expr(
 def kernel_constexpr_multiple_specializations(out: S.Tensor((4,), S.u32)):
     out[0] = helper_constexpr_bool_value(True)
     out[1] = helper_constexpr_bool_value(False)
+    out[2] = helper_constexpr_bool_value(1 < 2)
+
+
+@avelang.jit
+def kernel_constexpr_float_expr(out: S.Tensor((1,), S.f32)):
+    out[0] = helper_constexpr_float_value(GLOBAL_F32_EXACT + 0.25)
 
 
 class TestConstexprResolve(unittest.TestCase):
@@ -151,7 +162,16 @@ class TestConstexprResolve(unittest.TestCase):
         ](out)
         torch.cuda.synchronize()
 
-        self.assertEqual(out.cpu().tolist()[:2], [11, 23])
+        self.assertEqual(out.cpu().tolist()[:3], [11, 23, 11])
+
+    def test_constexpr_float_expression(self):
+        out = torch.zeros((1,), dtype=torch.float32, device="cuda")
+        kernel_constexpr_float_expr[
+            lambda: ((1, 1, 1), (1, 1, 1))
+        ](out)
+        torch.cuda.synchronize()
+
+        self.assertEqual(out.cpu()[0], -0.25)
 
 
 if __name__ == "__main__":
