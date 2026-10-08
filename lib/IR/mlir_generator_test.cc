@@ -2145,6 +2145,32 @@ TEST_F(MLIRGeneratorTest, ConstexprSymbolSurvivesSymbolTableClone) {
         *cloned_symbol->constexpr_value.type_info.is_unsigned_integer);
 }
 
+TEST_F(MLIRGeneratorTest, InjectConstexprStoresCanonicalSymbolOnly) {
+    auto ir_context = ir::IRContext::Create();
+    ir::MLIRGenerator generator(ir_context.get(), diagnostics_);
+    auto module = generator.CreateModule();
+
+    if (auto error = generator.InjectConstexprs(
+            R"([{"name":"N","type":"i32","value":32}])")) {
+        ADD_FAILURE() << llvm::toString(std::move(error));
+        return;
+    }
+
+    auto symbol = generator.GetSymbolTable()->LookupSymbol("N");
+    ASSERT_TRUE(symbol);
+    ASSERT_TRUE(symbol->isa(ir::SymbolScope::kConstexpr));
+    auto integer = mlir::dyn_cast<mlir::IntegerAttr>(
+        symbol->constexpr_value.attribute);
+    ASSERT_TRUE(integer);
+    EXPECT_EQ(integer.getInt(), 32);
+    size_t module_constant_count = 0;
+    for (auto constant : module.getOps<mlir::arith::ConstantOp>()) {
+        (void)constant;
+        ++module_constant_count;
+    }
+    EXPECT_EQ(module_constant_count, 0u);
+}
+
 TEST_F(MLIRGeneratorTest, ConstexprRedefinitionError) {
     static const std::string kSourceCode = R""""(
 import avelang

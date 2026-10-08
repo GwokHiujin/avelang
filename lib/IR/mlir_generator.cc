@@ -83,11 +83,9 @@ static llvm::Error InjectConstexprsIntoModule(MLIRGenerator &Generator,
                                        "Expected JSON array for constexprs");
 
     mlir::OpBuilder builder(IRContext->GetMLIRContext());
-    auto module = Generator.CreateModule();
-    builder.setInsertionPointToStart(module.getBody());
+    Generator.CreateModule();
 
     auto *symbolTable = Generator.GetSymbolTable();
-    auto &globalFrame = symbolTable->GetCurrentFrame();
 
     for (size_t index = 0; index < ConstexprsArray->size(); ++index) {
         const auto &item = (*ConstexprsArray)[index];
@@ -115,7 +113,7 @@ static llvm::Error InjectConstexprsIntoModule(MLIRGenerator &Generator,
                                            "constexprs entry missing 'value'");
         }
 
-        mlir::Value constValue;
+        ConstexprValue constValue;
 
         if (*type == "i32") {
             auto intVal = value->getAsInteger();
@@ -130,10 +128,9 @@ static llvm::Error InjectConstexprsIntoModule(MLIRGenerator &Generator,
                     llvm::inconvertibleErrorCode(),
                     "constexpr i32 value out of range");
             }
-            auto attr =
+            constValue.attribute =
                 builder.getI32IntegerAttr(static_cast<int32_t>(*intVal));
-            constValue = mlir::arith::ConstantOp::create(
-                builder, builder.getUnknownLoc(), attr);
+            constValue.type_info.is_unsigned_integer = false;
         } else if (*type == "i64") {
             auto intVal = value->getAsInteger();
             if (!intVal) {
@@ -141,9 +138,8 @@ static llvm::Error InjectConstexprsIntoModule(MLIRGenerator &Generator,
                     llvm::inconvertibleErrorCode(),
                     "constexpr i64 value must be integer");
             }
-            auto attr = builder.getI64IntegerAttr(*intVal);
-            constValue = mlir::arith::ConstantOp::create(
-                builder, builder.getUnknownLoc(), attr);
+            constValue.attribute = builder.getI64IntegerAttr(*intVal);
+            constValue.type_info.is_unsigned_integer = false;
         } else if (*type == "f64") {
             auto floatVal = value->getAsNumber();
             if (!floatVal) {
@@ -151,9 +147,7 @@ static llvm::Error InjectConstexprsIntoModule(MLIRGenerator &Generator,
                     llvm::inconvertibleErrorCode(),
                     "constexpr f64 value must be number");
             }
-            auto attr = builder.getF64FloatAttr(*floatVal);
-            constValue = mlir::arith::ConstantOp::create(
-                builder, builder.getUnknownLoc(), attr);
+            constValue.attribute = builder.getF64FloatAttr(*floatVal);
         } else if (*type == "i1") {
             auto boolVal = value->getAsBoolean();
             if (!boolVal) {
@@ -161,15 +155,14 @@ static llvm::Error InjectConstexprsIntoModule(MLIRGenerator &Generator,
                     llvm::inconvertibleErrorCode(),
                     "constexpr i1 value must be boolean");
             }
-            auto attr = builder.getBoolAttr(*boolVal);
-            constValue = mlir::arith::ConstantOp::create(
-                builder, builder.getUnknownLoc(), attr);
+            constValue.attribute = builder.getBoolAttr(*boolVal);
+            constValue.type_info.is_unsigned_integer = false;
         } else {
             return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                            "Unsupported constexpr type");
         }
 
-        globalFrame.AddValue(name->str(), constValue, /*immutable=*/true);
+        symbolTable->DefineConstexpr(name->str(), std::move(constValue));
     }
 
     return llvm::Error::success();
@@ -240,9 +233,9 @@ ToAddressSpaceBindings(const ArgAddressSpaceMap *arg_address_spaces) {
     return bindings;
 }
 
-static llvm::SmallVector<std::pair<std::string, mlir::Value>, 4>
+static llvm::SmallVector<std::pair<std::string, ConstexprValue>, 4>
 ToConstexprBindings(const ConstexprValueMap *constexpr_values) {
-    llvm::SmallVector<std::pair<std::string, mlir::Value>, 4> bindings;
+    llvm::SmallVector<std::pair<std::string, ConstexprValue>, 4> bindings;
     if (!constexpr_values) {
         return bindings;
     }

@@ -115,15 +115,19 @@ ResolveCallerArgs(ExprGenerator *gen, ast::Call *call, ast::FunctionDef *callee,
         auto value = call_args[index];
         auto *annotation = calleeArg->GetAnnotation();
         if (IsConstexprAnnotation(annotation)) {
-            if (!value) {
+            auto constexpr_value = ConstantFolder::FoldConstexprValue(value);
+            if (!constexpr_value) {
+                std::string message =
+                    "Argument '" + calleeArg->GetArgName() +
+                    "' for JIT function '" + callee->GetName() +
+                    "' must be a compile-time constant";
                 Report(gen, basic::DiagnosticCode::kUnimplemented,
                        call->GetSourceRange().getBegin())
-                    << "Failed to resolve constexpr argument '"
-                    << calleeArg->GetArgName() << "' for JIT function '"
-                    << callee->GetName() << "'";
+                    << message;
                 return std::nullopt;
             }
-            result.constexpr_values.emplace(calleeArg->GetArgName(), value);
+            result.constexpr_values.emplace(calleeArg->GetArgName(),
+                                            *constexpr_value);
             continue;
         }
 
@@ -995,15 +999,29 @@ mlir::Value ExprGenerator::VisitName(ast::Name *name) {
     if (!name)
         return nullptr;
 
-    // Use ResolveRefExpr to look up the symbol
-    auto value = parent_->GetContext()->syms->ResolveRefExpr(name);
+    auto symbol = parent_->GetContext()->syms->ResolveSymbol(
+        name, std::nullopt, /*report_not_found=*/false);
+    if (!symbol)
+        return nullptr;
+
+    if (symbol->isa(ir::SymbolScope::SymbolKind::kConstexpr)) {
+        auto &builder = parent_->GetBuilder();
+        auto value = mlir::arith::ConstantOp::create(
+            builder, GetMLIRLocation(name),
+            symbol->constexpr_value.attribute);
+        SetTypeInfo(value, symbol->constexpr_value.type_info);
+        return value;
+    }
+
+    if (!symbol->isa(ir::SymbolScope::SymbolKind::kValue))
+        return nullptr;
+
+    auto value = symbol->value;
     if (!value)
         return nullptr;
 
     // Check if this is an immutable (constexpr) constant that needs to be
     // cloned
-    auto symbol = parent_->GetContext()->syms->ResolveSymbol(
-        name, ir::SymbolScope::SymbolKind::kValue, false);
     if (symbol && symbol->immutable && value.getDefiningOp()) {
         auto &builder = parent_->GetBuilder();
         auto location = GetMLIRLocation(name);

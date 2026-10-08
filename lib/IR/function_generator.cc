@@ -382,8 +382,7 @@ void FunctionGenerator::Generate(ast::FunctionDef *func) {
         ctx_->syms->DefineSymbol(argNames[i], entry_block.getArgument(i));
     }
     for (const auto &[name, value] : constexpr_values_) {
-        ctx_->syms->GetCurrentFrame().AddValue(name, value,
-                                               /*immutable=*/true);
+        ctx_->syms->GetCurrentFrame().AddConstexpr(name, value);
     }
 
     for (auto *stmt : func->GetBody()) {

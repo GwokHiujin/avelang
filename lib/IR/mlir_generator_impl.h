@@ -38,7 +38,7 @@ namespace causalflow::avelang::ir {
 class MLIRGeneratorImpl;
 class FunctionGenerator;
 using ArgAddressSpaceMap = std::unordered_map<std::string, mlir::Attribute>;
-using ConstexprValueMap = std::unordered_map<std::string, mlir::Value>;
+using ConstexprValueMap = std::unordered_map<std::string, ConstexprValue>;
 
 class ExprGenerator : public ast::ASTVisitor<ExprGenerator, mlir::Value> {
   public:
