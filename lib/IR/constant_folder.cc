@@ -458,6 +458,42 @@ std::optional<int64_t> ConstantFolder::FoldIntValue(mlir::Value value) {
     return std::nullopt;
 }
 
+std::optional<ConstexprValue>
+ConstantFolder::FoldConstexprValue(mlir::Value value) {
+    if (!value) {
+        return std::nullopt;
+    }
+
+    ConstexprValue result;
+    result.type_info = GetTypeInfo(value);
+
+    if (auto constant = value.getDefiningOp<mlir::arith::ConstantOp>()) {
+        result.attribute =
+            mlir::dyn_cast<mlir::TypedAttr>(constant.getValue());
+        if (result.attribute) {
+            return result;
+        }
+    }
+
+    if (value.getType().isInteger(1)) {
+        if (auto folded = FoldBoolValue(value)) {
+            result.attribute = mlir::IntegerAttr::get(value.getType(),
+                                                      *folded ? 1 : 0);
+            return result;
+        }
+    }
+
+    if (value.getType().isIntOrIndex()) {
+        if (auto folded = FoldIntValue(value)) {
+            result.attribute =
+                mlir::IntegerAttr::get(value.getType(), *folded);
+            return result;
+        }
+    }
+
+    return std::nullopt;
+}
+
 std::optional<int64_t>
 ConstantFolder::ResolveConstantReference(ast::Expr *expr) const {
     if (!ctx_ || !ctx_->syms || !expr) {
@@ -466,7 +502,17 @@ ConstantFolder::ResolveConstantReference(ast::Expr *expr) const {
 
     if (auto *name = llvm::dyn_cast<ast::Name>(expr)) {
         auto symbol = ctx_->syms->LookupSymbol(name->GetId());
-        if (!symbol || !symbol->isa(SymbolTable::SymbolKind::kValue)) {
+        if (!symbol) {
+            return std::nullopt;
+        }
+        if (symbol->isa(SymbolTable::SymbolKind::kConstexpr)) {
+            if (auto integer = mlir::dyn_cast<mlir::IntegerAttr>(
+                    symbol->constexpr_value.attribute)) {
+                return integer.getInt();
+            }
+            return std::nullopt;
+        }
+        if (!symbol->isa(SymbolTable::SymbolKind::kValue)) {
             return std::nullopt;
         }
         if (auto value = FoldIntValue(symbol->value)) {
@@ -478,7 +524,17 @@ ConstantFolder::ResolveConstantReference(ast::Expr *expr) const {
     if (auto *attr = llvm::dyn_cast<ast::AttributeExpr>(expr)) {
         auto symbol = ctx_->syms->ResolveSymbol(attr, std::nullopt,
                                                 /*report_not_found=*/false);
-        if (!symbol || !symbol->isa(SymbolTable::SymbolKind::kValue)) {
+        if (!symbol) {
+            return std::nullopt;
+        }
+        if (symbol->isa(SymbolTable::SymbolKind::kConstexpr)) {
+            if (auto integer = mlir::dyn_cast<mlir::IntegerAttr>(
+                    symbol->constexpr_value.attribute)) {
+                return integer.getInt();
+            }
+            return std::nullopt;
+        }
+        if (!symbol->isa(SymbolTable::SymbolKind::kValue)) {
             return std::nullopt;
         }
         if (auto value = FoldIntValue(symbol->value)) {
