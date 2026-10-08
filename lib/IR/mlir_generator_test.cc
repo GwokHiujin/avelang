@@ -2125,6 +2125,26 @@ def kernel(N: S.constexpr, data: S.Tensor((16,), S.i32)):
     EXPECT_EQ(func.getNumArguments(), 1u);
 }
 
+TEST_F(MLIRGeneratorTest, ConstexprSymbolSurvivesSymbolTableClone) {
+    auto ir_context = ir::IRContext::Create();
+    ir::MLIRGenerator generator(ir_context.get(), diagnostics_);
+    generator.CreateModule();
+
+    mlir::OpBuilder builder(ir_context->GetMLIRContext());
+    ir::ConstexprValue value{builder.getI32IntegerAttr(32),
+                             ir::TypeInfo{/*is_unsigned_integer=*/true}};
+    generator.GetSymbolTable()->DefineConstexpr("N", value);
+
+    auto cloned_table = generator.GetSymbolTable()->Clone();
+    auto cloned_symbol = cloned_table->LookupSymbol("N");
+    ASSERT_TRUE(cloned_symbol);
+    ASSERT_TRUE(cloned_symbol->isa(ir::SymbolScope::kConstexpr));
+    EXPECT_EQ(cloned_symbol->constexpr_value.attribute, value.attribute);
+    ASSERT_TRUE(cloned_symbol->constexpr_value.type_info.is_unsigned_integer);
+    EXPECT_TRUE(
+        *cloned_symbol->constexpr_value.type_info.is_unsigned_integer);
+}
+
 TEST_F(MLIRGeneratorTest, ConstexprRedefinitionError) {
     static const std::string kSourceCode = R""""(
 import avelang

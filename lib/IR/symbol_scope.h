@@ -5,12 +5,14 @@
 
 #include <functional>
 #include <map>
+#include <optional>
 #include <string>
 #include <utility>
 
 #include <llvm/ADT/ArrayRef.h>
 
 #include "AST/ast_nodes_expr.h"
+#include "constexpr_value.h"
 
 namespace causalflow::avelang::ir {
 
@@ -26,6 +28,7 @@ class SymbolScope {
         kFunction,
         kType,
         kValue,
+        kConstexpr,
     };
 
     using TypeFactoryFunction = std::function<mlir::Type(
@@ -64,17 +67,19 @@ class SymbolScope {
         std::string symbol_name;
     };
 
-    // FIXME: This is broken in terms of lifecycle management
     struct Symbol {
-        SymbolKind kind;
+        SymbolKind kind = kValue;
         bool immutable = false; // Track whether this symbol is immutable
-        union {
-            NamedModule *module;
-            TypeFactoryFunction type_factory;
-            Function function;
-            mlir::Type type;
-            mlir::Value value;
-        };
+
+        // Symbols are deliberately regular value types.  The former manual
+        // union made copying symbol-table snapshots unsafe as new symbol kinds
+        // were added.
+        NamedModule *module = nullptr;
+        TypeFactoryFunction type_factory;
+        Function function;
+        mlir::Type type;
+        mlir::Value value;
+        ConstexprValue constexpr_value;
 
         Symbol();
         Symbol(NamedModule *m);
@@ -82,11 +87,7 @@ class SymbolScope {
         Symbol(Function ff);
         Symbol(mlir::Type t);
         Symbol(mlir::Value v);
-
-        ~Symbol();
-
-        Symbol(const Symbol &other);
-        Symbol &operator=(const Symbol &other);
+        Symbol(ConstexprValue v);
 
         bool isa(SymbolKind k) const;
     };
@@ -98,6 +99,7 @@ class SymbolScope {
     // Convenience methods for different symbol types
     void AddValue(const std::string &name, mlir::Value value,
                   bool immutable = false);
+    void AddConstexpr(const std::string &name, ConstexprValue value);
     void AddType(const std::string &name, mlir::Type type);
     void AddModule(const std::string &name, NamedModule *module);
     void AddTypeFactory(const std::string &name, TypeFactoryFunction factory);
@@ -108,6 +110,8 @@ class SymbolScope {
 
     // Legacy lookup methods for compatibility
     mlir::Value LookupValue(const std::string &name) const;
+    std::optional<ConstexprValue>
+    LookupConstexpr(const std::string &name) const;
     mlir::Type LookupType(const std::string &name) const;
     NamedModule *LookupModule(const std::string &name) const;
     TypeFactoryFunction LookupTypeFactory(const std::string &name) const;
