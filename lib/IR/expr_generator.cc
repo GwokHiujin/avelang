@@ -1005,12 +1005,8 @@ mlir::Value ExprGenerator::VisitName(ast::Name *name) {
         return nullptr;
 
     if (symbol->isa(ir::SymbolScope::SymbolKind::kConstexpr)) {
-        auto &builder = parent_->GetBuilder();
-        auto value = mlir::arith::ConstantOp::create(
-            builder, GetMLIRLocation(name),
-            symbol->constexpr_value.attribute);
-        SetTypeInfo(value, symbol->constexpr_value.type_info);
-        return value;
+        return parent_->MaterializeConstexpr(
+            name->GetId(), symbol->constexpr_value, GetMLIRLocation(name));
     }
 
     if (!symbol->isa(ir::SymbolScope::SymbolKind::kValue))
@@ -1019,35 +1015,6 @@ mlir::Value ExprGenerator::VisitName(ast::Name *name) {
     auto value = symbol->value;
     if (!value)
         return nullptr;
-
-    // Check if this is an immutable (constexpr) constant that needs to be
-    // cloned
-    if (symbol && symbol->immutable && value.getDefiningOp()) {
-        auto &builder = parent_->GetBuilder();
-        auto location = GetMLIRLocation(name);
-
-        // This is a constexpr value. Re-materialize it in the current
-        // insertion point so helper functions do not capture values defined in
-        // their caller's region.
-        if (auto intValue = ConstantFolder::FoldIntValue(value)) {
-            if (value.getType().isIndex()) {
-                value = mlir::arith::ConstantIndexOp::create(
-                    builder, location, *intValue);
-            } else if (value.getType().isInteger()) {
-                value = mlir::arith::ConstantOp::create(
-                    builder, location,
-                    builder.getIntegerAttr(value.getType(), *intValue));
-            }
-            if (value) {
-                SetTypeInfo(value, GetTypeInfo(symbol->value));
-            }
-        } else if (auto constOp = mlir::dyn_cast<mlir::arith::ConstantOp>(
-                       value.getDefiningOp())) {
-            value = mlir::arith::ConstantOp::create(builder, location,
-                                                    constOp.getValue());
-            SetTypeInfo(value, GetTypeInfo(symbol->value));
-        }
-    }
 
     // If the symbol is a scalar memref (created by variable assignment), load
     // from it. Keep scalar memref block arguments as memrefs so call sites can

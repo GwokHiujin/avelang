@@ -721,11 +721,8 @@ def kernel(out: S.Tensor((4,), S.i32), flag: S.constexpr):
     auto module = generator.CreateModule();
 
     mlir::OpBuilder builder(ir_context->GetMLIRContext());
-    builder.setInsertionPointToStart(module.getBody());
-    auto flag = mlir::arith::ConstantOp::create(
-        builder, builder.getUnknownLoc(), builder.getBoolAttr(true));
-    generator.GetSymbolTable()->GetCurrentFrame().AddValue(
-        "flag", flag, /*immutable=*/true);
+    generator.GetSymbolTable()->DefineConstexpr(
+        "flag", ir::ConstexprValue{builder.getBoolAttr(true), {false}});
 
     module = generator.Generate(root);
     ASSERT_TRUE(module);
@@ -2081,6 +2078,7 @@ import avelang.language as S
 def kernel(N: S.constexpr, data: S.Tensor((16,), S.i32)):
     x = N + 1
     data[0] = x
+    data[1] = N
 )"""";
 
     ast::ASTNode *root;
@@ -2093,18 +2091,10 @@ def kernel(N: S.constexpr, data: S.Tensor((16,), S.i32)):
     // Create the module first
     auto module = generator.CreateModule();
 
-    // Now create constexpr values in that module
     mlir::OpBuilder builder(ir_context->GetMLIRContext());
-    builder.setInsertionPointToStart(module.getBody());
-
-    auto constAttr = builder.getI32IntegerAttr(32);
-    auto constValue = mlir::arith::ConstantOp::create(
-        builder, builder.getUnknownLoc(), constAttr);
-
-    // Add to global frame
     auto *symbol_table = generator.GetSymbolTable();
-    auto &global_frame = symbol_table->GetCurrentFrame();
-    global_frame.AddValue("N", constValue, /*immutable=*/true);
+    symbol_table->DefineConstexpr(
+        "N", ir::ConstexprValue{builder.getI32IntegerAttr(32), {false}});
 
     // Generate the MLIR from the AST
     module = generator.Generate(root);
@@ -2123,6 +2113,15 @@ def kernel(N: S.constexpr, data: S.Tensor((16,), S.i32)):
 
     // Should have 1 argument (data memref), not 2 (N is constexpr, excluded)
     EXPECT_EQ(func.getNumArguments(), 1u);
+
+    size_t materialization_count = 0;
+    func.walk([&](mlir::arith::ConstantOp constant) {
+        auto integer = mlir::dyn_cast<mlir::IntegerAttr>(constant.getValue());
+        if (integer && integer.getInt() == 32) {
+            ++materialization_count;
+        }
+    });
+    EXPECT_EQ(materialization_count, 1u);
 }
 
 TEST_F(MLIRGeneratorTest, ConstexprSymbolSurvivesSymbolTableClone) {
@@ -2191,18 +2190,10 @@ def kernel(N: S.constexpr):
     // Create the module first
     auto module = generator.CreateModule();
 
-    // Now create constexpr values in that module
     mlir::OpBuilder builder(ir_context->GetMLIRContext());
-    builder.setInsertionPointToStart(module.getBody());
-
-    auto constAttr = builder.getI32IntegerAttr(32);
-    auto constValue = mlir::arith::ConstantOp::create(
-        builder, builder.getUnknownLoc(), constAttr);
-
-    // Add to global frame
     auto *symbol_table = generator.GetSymbolTable();
-    auto &global_frame = symbol_table->GetCurrentFrame();
-    global_frame.AddValue("N", constValue, /*immutable=*/true);
+    symbol_table->DefineConstexpr(
+        "N", ir::ConstexprValue{builder.getI32IntegerAttr(32), {false}});
 
     // Generate the MLIR from the AST - should fail with immutable error
     module = generator.Generate(root);
