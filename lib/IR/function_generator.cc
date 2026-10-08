@@ -990,6 +990,14 @@ bool FunctionGenerator::ResolveNameAssignmentTarget(
     const std::string &target_name = name_target->GetId();
     auto existing_symbol = ctx_->syms->LookupSymbol(target_name);
     if (existing_symbol &&
+        existing_symbol->isa(SymbolTable::SymbolKind::kConstexpr)) {
+        ctx_->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
+                                         source_loc)
+            << "Cannot assign to immutable (constexpr) variable '" +
+                   target_name + "'";
+        return false;
+    }
+    if (existing_symbol &&
         !existing_symbol->isa(SymbolTable::SymbolKind::kValue)) {
         ctx_->diagnostic_manager->Report(basic::DiagnosticCode::kTypeMismatch,
                                          source_loc)
