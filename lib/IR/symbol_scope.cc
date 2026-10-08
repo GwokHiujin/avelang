@@ -20,7 +20,7 @@ SymbolScope::Symbol::Symbol(mlir::Type t) : kind(kType), type(t) {}
 SymbolScope::Symbol::Symbol(mlir::Value v) : kind(kValue), value(v) {}
 
 SymbolScope::Symbol::Symbol(ConstexprValue v)
-    : kind(kConstexpr), immutable(true), constexpr_value(std::move(v)) {}
+    : kind(kConstexpr), constexpr_value(std::move(v)) {}
 
 bool SymbolScope::Symbol::isa(SymbolKind k) const { return this->kind == k; }
 
@@ -37,11 +37,8 @@ SymbolScope::LookupSymbol(const std::string &name) const {
     return std::nullopt;
 }
 
-void SymbolScope::AddValue(const std::string &name, mlir::Value value,
-                           bool immutable) {
-    Symbol sym(value);
-    sym.immutable = immutable;
-    symbols_[name] = sym;
+void SymbolScope::AddValue(const std::string &name, mlir::Value value) {
+    symbols_[name] = Symbol(value);
 }
 
 void SymbolScope::AddConstexpr(const std::string &name, ConstexprValue value) {

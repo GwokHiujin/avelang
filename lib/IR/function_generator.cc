@@ -1027,14 +1027,6 @@ bool FunctionGenerator::ResolveNameAssignmentTarget(
             << "Symbol has wrong type";
         return false;
     }
-    if (existing_symbol && existing_symbol->immutable) {
-        ctx_->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
-                                         source_loc)
-            << "Cannot assign to immutable (constexpr) variable '" +
-                   target_name + "'";
-        return false;
-    }
-
     mlir::Value existing_value =
         existing_symbol ? existing_symbol->value : mlir::Value();
     if (existing_value && mlir::isa<cf::MemRefType>(existing_value.getType())) {

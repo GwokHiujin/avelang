@@ -699,6 +699,75 @@ def kernel(out: S.Tensor((2,), S.u32)):
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateJitFunctionWithFoldedConstexprExpressions) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def kernel(float_out: S.Tensor((1,), S.f32), bool_out: S.Tensor((1,), S.u32)):
+    def float_helper(value: S.constexpr) -> S.f32:
+        return S.convert(value, S.f32)
+    def bool_helper(flag: S.constexpr) -> S.u32:
+        if flag:
+            return S.convert(11, S.u32)
+        return S.convert(23, S.u32)
+    float_out[0] = float_helper(1.5 + 0.25)
+    bool_out[0] = bool_helper(1 < 2)
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
+TEST_F(MLIRGeneratorTest, GenerateNestedConstexprJitFunctions) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def kernel(out: S.Tensor((1,), S.u32)):
+    def inner(value: S.constexpr) -> S.u32:
+        return S.convert(value, S.u32)
+    def outer(value: S.constexpr) -> S.u32:
+        return inner(value + 1)
+    out[0] = outer(3)
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
+TEST_F(MLIRGeneratorTest, RejectRuntimeValueForConstexprJitArgument) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def kernel(input_data: S.Tensor((1,), S.i32),
+           out: S.Tensor((1,), S.i32)):
+    def helper(value: S.constexpr) -> S.i32:
+        return value
+    out[0] = helper(input_data[0])
+)""""";
+
+    RunMLIRGenerationErrorTest(kSourceCode,
+                               "must be a compile-time constant");
+}
+
+TEST_F(MLIRGeneratorTest, MangleLargeConstexprInteger) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def kernel(out: S.Tensor((1,), S.i64)):
+    def helper(value: S.constexpr) -> S.i64:
+        return value
+    out[0] = helper(4294967296)
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateConstexprBranchInsideForLoop) {
     static const std::string kSourceCode = R""""(
 import avelang

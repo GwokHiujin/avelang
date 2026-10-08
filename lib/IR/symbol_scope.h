@@ -69,7 +69,6 @@ class SymbolScope {
 
     struct Symbol {
         SymbolKind kind = kValue;
-        bool immutable = false; // Track whether this symbol is immutable
 
         // Symbols are deliberately regular value types.  The former manual
         // union made copying symbol-table snapshots unsafe as new symbol kinds
@@ -97,8 +96,7 @@ class SymbolScope {
     std::optional<Symbol> LookupSymbol(const std::string &name) const;
 
     // Convenience methods for different symbol types
-    void AddValue(const std::string &name, mlir::Value value,
-                  bool immutable = false);
+    void AddValue(const std::string &name, mlir::Value value);
     void AddConstexpr(const std::string &name, ConstexprValue value);
     void AddType(const std::string &name, mlir::Type type);
     void AddModule(const std::string &name, NamedModule *module);

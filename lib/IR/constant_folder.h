@@ -28,6 +28,8 @@ class ConstantFolder {
 
   private:
     static std::optional<int64_t> GetConstantIntValue(mlir::Value value);
+    static std::optional<mlir::FloatAttr>
+    FoldFloatValue(mlir::Value value);
     std::optional<int64_t> ResolveConstantReference(ast::Expr *expr) const;
 
     GeneratorContext *ctx_;
