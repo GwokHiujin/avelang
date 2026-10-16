@@ -1,6 +1,7 @@
 #include "Dialect/AveLang/IR/AveLangOps.h"
 #include "Dialect/AveLang/Transforms/lower_ave_lang_to_memref_pass.h"
 #include "Frontend/avelang_parser.h"
+#include "IR/constant_folder.h"
 #include "IR/ir_context.h"
 #include "IR/mlir_generator.h"
 #include "IR/symbol_table.h"
@@ -10,6 +11,7 @@
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
+#include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/Dialect/LLVMIR/ROCDLDialect.h>
 #include <mlir/Dialect/Math/IR/Math.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
@@ -26,6 +28,25 @@
 
 namespace causalflow::avelang::frontend {
 namespace cf = causalflow::avelang::dialect;
+
+TEST(ConstantFolderTest, FoldsIntegerConstantsAcrossDialects) {
+    auto irContext = ir::IRContext::Create();
+    mlir::OpBuilder builder(irContext->GetMLIRContext());
+    mlir::Block block;
+    builder.setInsertionPointToStart(&block);
+
+    auto location = builder.getUnknownLoc();
+    auto arithConstant =
+        mlir::arith::ConstantIntOp::create(builder, location, 7, 32);
+    auto llvmConstant = mlir::LLVM::ConstantOp::create(
+        builder, location, builder.getI32Type(), 35);
+    auto sum = mlir::arith::AddIOp::create(builder, location, arithConstant,
+                                           llvmConstant);
+
+    EXPECT_EQ(ir::ConstantFolder::FoldIntValue(arithConstant), 7);
+    EXPECT_EQ(ir::ConstantFolder::FoldIntValue(llvmConstant), 35);
+    EXPECT_EQ(ir::ConstantFolder::FoldIntValue(sum), 42);
+}
 
 class DiagnosticHandler : public clang::DiagnosticConsumer {
   public:

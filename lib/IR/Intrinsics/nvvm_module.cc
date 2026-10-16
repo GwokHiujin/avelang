@@ -1,6 +1,7 @@
 #include "AST/ast_nodes_expr.h"
 #include "Dialect/AveLang/IR/AveLangOps.h"
 #include "IR/builtin_module.h"
+#include "IR/constant_folder.h"
 #include "IR/generator_context.h"
 #include "IR/mlir_generator_impl.h"
 #include "IR/named_module.h"
@@ -54,26 +55,6 @@ constexpr llvm::StringRef kNvvmIntrinsicLibraryTag =
     "embedded:nvvm_intrinsics.mlirbc";
 
 
-static std::optional<int64_t> getConstantIntValue(mlir::Value value) {
-    if (!value) {
-        return std::nullopt;
-    }
-    if (auto constOp = value.getDefiningOp<mlir::arith::ConstantOp>()) {
-        if (auto intAttr =
-                mlir::dyn_cast<mlir::IntegerAttr>(constOp.getValue())) {
-            return intAttr.getInt();
-        }
-    }
-    if (auto constOp = value.getDefiningOp<mlir::LLVM::ConstantOp>()) {
-        if (auto intAttr =
-                mlir::dyn_cast<mlir::IntegerAttr>(constOp.getValue())) {
-            return intAttr.getInt();
-        }
-    }
-    return std::nullopt;
-}
-
-
 static std::optional<mlir::nvgpu::TensorMapSwizzleKind>
 getTensorMapSwizzleKind(int64_t swizzle) {
     switch (swizzle) {
@@ -101,7 +82,7 @@ static bool extractConstantTupleValues(
         return true;
     }
 
-    auto value = getConstantIntValue(tupleValue);
+    auto value = ConstantFolder::FoldIntValue(tupleValue);
     if (!value) {
         return false;
     }
@@ -706,7 +687,7 @@ mlir::Value NVVMIntrinsic::CreateMakeTMADescriptorFunction(
             swizzleValue = resolved_args[positionalCount + i];
         }
     }
-    auto swizzleInt = getConstantIntValue(swizzleValue);
+    auto swizzleInt = ConstantFolder::FoldIntValue(swizzleValue);
     auto swizzleKind = getTensorMapSwizzleKind(*swizzleInt);
 
     auto tensorType = mlir::dyn_cast<cf::MemRefType>(resolved_args[0].getType());
@@ -853,7 +834,7 @@ bool NVVMIntrinsic::CheckMakeTMADescriptorFunction(
                 << "make_tma_descriptor swizzle_kind must be an integer";
             return false;
         }
-        auto swizzleInt = getConstantIntValue(swizzleValue);
+        auto swizzleInt = ConstantFolder::FoldIntValue(swizzleValue);
         if (!swizzleInt || !getTensorMapSwizzleKind(*swizzleInt)) {
             ctx->diagnostic_manager->Report(
                 basic::DiagnosticCode::kUnimplemented,

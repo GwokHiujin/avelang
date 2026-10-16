@@ -1,5 +1,6 @@
 #include "nvvm_backend.h"
 #include "Dialect/AveLang/IR/AveLangOps.h"
+#include "IR/constant_folder.h"
 #include "IR/mlir_generator.h"
 #include "IR/type_system.h"
 #include "Target/GPU/lower_to_llvm.h"
@@ -15,7 +16,6 @@
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Triple.h>
-#include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mutex>
 #include <optional>
@@ -27,16 +27,6 @@ namespace {
 
 namespace ave = causalflow::avelang::dialect;
 
-std::optional<int64_t> getConstantIntValue(mlir::Value value) {
-    if (auto constOp = value.getDefiningOp<mlir::arith::ConstantOp>()) {
-        if (auto intAttr =
-                mlir::dyn_cast<mlir::IntegerAttr>(constOp.getValue())) {
-            return intAttr.getInt();
-        }
-    }
-    return std::nullopt;
-}
-
 bool extractConstantTupleValues(mlir::Value tupleValue,
                                 llvm::SmallVectorImpl<int64_t> &values) {
     auto tupleOp = tupleValue.getDefiningOp<ave::MakeIntTupleOp>();
@@ -44,7 +34,7 @@ bool extractConstantTupleValues(mlir::Value tupleValue,
         return false;
     }
     for (auto element : tupleOp.getElements()) {
-        auto value = getConstantIntValue(element);
+        auto value = ir::ConstantFolder::FoldIntValue(element);
         if (!value) {
             return false;
         }
@@ -206,7 +196,8 @@ llvm::json::Object NVVMBackend::getKernelMetadata(mlir::ModuleOp module) const {
         auto elementSize = getTMAElementSize(tensorType.getElementType());
         auto dataType = getTMADataType(tensorType.getElementType(),
                                        ir::GetTypeInfo(tensor));
-        auto swizzleKind = getConstantIntValue(op.getSwizzle());
+        auto swizzleKind =
+            ir::ConstantFolder::FoldIntValue(op.getSwizzle());
         if (!elementSize || !dataType || !swizzleKind) {
             return;
         }
