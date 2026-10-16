@@ -4,6 +4,7 @@
 #include "Dialect/AveLang/Transforms/hoist_alloca_pass.h"
 #include "Dialect/AveLang/Transforms/lower_ave_lang_to_memref_pass.h"
 #include "Dialect/AveLang/Transforms/lower_gpuop_to_intrinsics_pass.h"
+#include "Dialect/AveLang/Transforms/normalize_ave_lang_return_pass.h"
 #include "IR/builtin_module.h"
 #include "IR/ir_context.h"
 #include "avelang/config.h"
@@ -229,6 +230,8 @@ class LowerToLLVM::Impl {
 
         pm.addPass(causalflow::avelang::dialect::
                        createLowerAveLangGPUToIntrinsicsPass());
+        pm.addPass(causalflow::avelang::dialect::
+                       createNormalizeAveLangReturnPass());
 
         pm.addPass(::mlir::createInlinerPass());
         pm.addPass(::mlir::createCanonicalizerPass());
@@ -246,6 +249,7 @@ class LowerToLLVM::Impl {
         pm.addNestedPass<mlir::func::FuncOp>(
             causalflow::avelang::dialect::createHoistAllocaPass());
         pm.addPass(createLinkIntrinsicImplementationPass());
+        pm.addPass(::mlir::createInlinerPass());
         pm.addPass(::mlir::createCanonicalizerPass());
         pm.addPass(::mlir::createCSEPass());
 
