@@ -52,6 +52,32 @@ systemctl --user status avelang-ci-runner.service
 journalctl --user -u avelang-ci-runner.service --since today
 ```
 
+## CI caches
+
+The workflow restores two toolchain-aware caches through `actions/cache`:
+
+- `ccache` compiler outputs, enabled through CMake's compiler launcher settings.
+- Hunter's package and download tree, kept outside the CMake build directory.
+
+The key includes the runner OS and architecture, `gfx950`, the pinned image/package manifests, the top-level CMake configuration, and Hunter configuration. Each commit gets an immutable cache entry and may restore only entries with the same toolchain/dependency fingerprint. The workflow removes `build/ci` before configuring, so CMake objects and generated state are never reused between commits.
+
+## Protect `master`
+
+The expected policy for `master` is:
+
+- Changes must arrive through a pull request, including changes made by administrators.
+- `Build and test on gfx950` must pass.
+- The branch must be up to date with `master` before merging.
+- Force pushes and branch deletion remain disabled.
+
+An authenticated repository administrator can apply and verify the policy idempotently with:
+
+```bash
+./ci/configure-branch-protection.sh
+```
+
+The script accepts optional repository and branch arguments in that order. It intentionally requires zero approving reviews: the protection gates changes on a PR and the complete GPU CI job without imposing a reviewer-count policy that was not requested.
+
 ## Updating pins
 
 Treat every pin change as an environment upgrade:

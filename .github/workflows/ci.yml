@@ -32,10 +32,25 @@ jobs:
       AMDGPU_TARGETS: gfx950
       PYTORCH_ROCM_ARCH: gfx950
       BUILD_DIR: build/ci
+      CCACHE_DIR: ${{ runner.temp }}/avelang-ci-cache/ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_MAXSIZE: 5G
+      HUNTER_ROOT: ${{ runner.temp }}/avelang-ci-cache/hunter
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+
+      - name: Restore compiler and dependency caches
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ env.CCACHE_DIR }}
+            ${{ env.HUNTER_ROOT }}
+          key: avelang-${{ runner.os }}-${{ runner.arch }}-${{ env.AMDGPU_TARGETS }}-${{ hashFiles('ci/image.env', 'ci/apt-packages.txt', 'ci/requirements-ci.txt', 'CMakeLists.txt', 'cmake/**') }}-${{ github.sha }}
+          restore-keys: avelang-${{ runner.os }}-${{ runner.arch }}-${{ env.AMDGPU_TARGETS }}-${{ hashFiles('ci/image.env', 'ci/apt-packages.txt', 'ci/requirements-ci.txt', 'CMakeLists.txt', 'cmake/**') }}-
 
       - name: Configure runner environment
         shell: bash
@@ -43,6 +58,13 @@ jobs:
           echo "/opt/llvm23/bin" >> "$GITHUB_PATH"
           echo "/opt/venv/bin" >> "$GITHUB_PATH"
           echo "PYTHONPATH=$GITHUB_WORKSPACE/python" >> "$GITHUB_ENV"
+          mkdir -p "$CCACHE_DIR" "$HUNTER_ROOT"
+          ccache --zero-stats
+          ccache --set-config="cache_dir=$CCACHE_DIR"
+          ccache --set-config="base_dir=$CCACHE_BASEDIR"
+          ccache --set-config="compiler_check=$CCACHE_COMPILERCHECK"
+          ccache --set-config="hash_dir=false"
+          ccache --set-config="max_size=$CCACHE_MAXSIZE"
 
       - name: Verify ROCm and LLVM environment
         shell: bash
@@ -56,16 +78,20 @@ jobs:
       - name: Configure CMake
         shell: bash
         run: |
+          rm -rf "$BUILD_DIR"
           rocm_prefix="$(hipconfig --rocmpath)"
-          cmake --fresh -S . -B "$BUILD_DIR" -G Ninja \
+          cmake -S . -B "$BUILD_DIR" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DAVE_LANG_BACKEND=rocm \
             -DWITH_PYTHON=ON \
             -DCMAKE_C_COMPILER=/opt/llvm23/bin/clang \
             -DCMAKE_CXX_COMPILER=/opt/llvm23/bin/clang++ \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_PREFIX_PATH="/opt/llvm23;${rocm_prefix}" \
             -DCMAKE_EXE_LINKER_FLAGS='-Wl,--exclude-libs,ALL' \
             -DCMAKE_MODULE_LINKER_FLAGS='-Wl,--exclude-libs,ALL' \
+            -DHUNTER_ROOT="$HUNTER_ROOT" \
             -DPython3_ROOT_DIR=/opt/venv \
             -DPython3_EXECUTABLE=/opt/venv/bin/python \
             -DAVE_LANG_PYTHON_LIBRARY_OUTPUT_DIRECTORY="$GITHUB_WORKSPACE/python"
@@ -85,3 +111,8 @@ jobs:
       - name: Run Python functionality tests
         shell: bash
         run: python -m pytest -q -ra test/
+
+      - name: Report compiler cache statistics
+        if: always()
+        shell: bash
+        run: ccache --show-stats --verbose
