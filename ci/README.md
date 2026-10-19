@@ -33,11 +33,24 @@ AVE_OCI_RUNTIME=/data/home/xiaoyan/.local/crun-package/crun-local \
 
 The custom runtime is needed on the current rootless Podman host so `--group-add keep-groups` preserves access to `/dev/kfd` and `/dev/dri`.
 
-## Runner state
+## Durable runner service
 
-The pristine runner distribution is installed at `/opt/actions-runner`. Registration must copy it to a persistent writable location before `config.sh` is run. Do not bake `.runner`, `.credentials`, registration tokens, repository checkouts, or GitHub credentials into the image.
+The pristine runner distribution is installed at `/opt/actions-runner`, while registration state and job workspaces remain under `~/dev/ave_action_runner`. Registration tokens and credentials are never baked into the image.
 
-Durable runner startup and migration from `ave-kda-mi355` are handled separately from the image definition.
+After the runner has been registered once, install and start the rootless user service:
+
+```bash
+./ci/install-runner-service.sh
+```
+
+The installer refuses to replace the container while a `Runner.Worker` process is active. It enables user lingering, installs `avelang-ci-runner.service`, and starts the runner in `ave-kda-mi355`. The service recreates the container from the pinned image after a failure, starts at boot without an interactive login, and stops the runner gracefully.
+
+Inspect it with:
+
+```bash
+systemctl --user status avelang-ci-runner.service
+journalctl --user -u avelang-ci-runner.service --since today
+```
 
 ## Updating pins
 
