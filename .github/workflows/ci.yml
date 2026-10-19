@@ -32,23 +32,32 @@ jobs:
       AMDGPU_TARGETS: gfx950
       PYTORCH_ROCM_ARCH: gfx950
       BUILD_DIR: build/ci
-      CCACHE_DIR: ${{ runner.temp }}/avelang-ci-cache/ccache
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_COMPILERCHECK: content
       CCACHE_NOHASHDIR: "true"
       CCACHE_MAXSIZE: 5G
-      HUNTER_ROOT: ${{ runner.temp }}/avelang-ci-cache/hunter
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
 
+      - name: Initialize cache locations
+        id: cache-paths
+        shell: bash
+        run: |
+          ccache_dir="$RUNNER_TEMP/avelang-ci-cache/ccache"
+          hunter_root="$RUNNER_TEMP/avelang-ci-cache/hunter"
+          echo "ccache=$ccache_dir" >> "$GITHUB_OUTPUT"
+          echo "hunter=$hunter_root" >> "$GITHUB_OUTPUT"
+          echo "CCACHE_DIR=$ccache_dir" >> "$GITHUB_ENV"
+          echo "HUNTER_ROOT=$hunter_root" >> "$GITHUB_ENV"
+
       - name: Restore compiler and dependency caches
         uses: actions/cache@v6
         with:
           path: |
-            ${{ env.CCACHE_DIR }}
-            ${{ env.HUNTER_ROOT }}
+            ${{ steps.cache-paths.outputs.ccache }}
+            ${{ steps.cache-paths.outputs.hunter }}
           key: avelang-${{ runner.os }}-${{ runner.arch }}-${{ env.AMDGPU_TARGETS }}-${{ hashFiles('ci/image.env', 'ci/apt-packages.txt', 'ci/requirements-ci.txt', 'CMakeLists.txt', 'cmake/**') }}-${{ github.sha }}
           restore-keys: avelang-${{ runner.os }}-${{ runner.arch }}-${{ env.AMDGPU_TARGETS }}-${{ hashFiles('ci/image.env', 'ci/apt-packages.txt', 'ci/requirements-ci.txt', 'CMakeLists.txt', 'cmake/**') }}-
 
