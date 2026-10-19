@@ -1,0 +1,4 @@
+**
+!ci/
+!ci/apt-packages.txt
+!ci/requirements-ci.txt

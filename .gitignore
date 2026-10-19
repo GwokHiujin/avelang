@@ -1,5 +1,6 @@
 # Build outputs
 .*
+!.containerignore
 !.github/
 !.github/workflows/
 !.github/workflows/*.yml

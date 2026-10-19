@@ -1,0 +1,100 @@
+ARG BASE_IMAGE=docker.io/lmsysorg/sglang:v0.5.22-rocm10-mi35x@sha256:1438dd8b9000adaefb5828edb1cc5713992815d4296f4ad1a1e98dee4e9c7e5f
+
+FROM ${BASE_IMAGE} AS llvm-builder
+
+ARG LLVM_COMMIT=8f497e0992fb7513f7f78a6f6b6f1056c375e961
+ARG LLVM_BUILD_JOBS=32
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PATH=/opt/venv/bin:${PATH}
+
+COPY ci/apt-packages.txt /tmp/apt-packages.txt
+
+RUN apt-get update \
+    && xargs -r apt-get install -y --no-install-recommends < /tmp/apt-packages.txt \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git init /src/llvm-project \
+    && git -C /src/llvm-project remote add origin https://github.com/ROCm/llvm-project.git \
+    && git -C /src/llvm-project fetch --depth 1 origin "${LLVM_COMMIT}" \
+    && git -C /src/llvm-project checkout --detach FETCH_HEAD \
+    && test "$(git -C /src/llvm-project rev-parse HEAD)" = "${LLVM_COMMIT}"
+
+RUN cmake -S /src/llvm-project/llvm -B /src/llvm-project/build -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=/opt/llvm23 \
+      -DLLVM_ENABLE_PROJECTS='clang;mlir;lld' \
+      -DLLVM_TARGETS_TO_BUILD='X86;AMDGPU' \
+      -DLLVM_ENABLE_RTTI=ON \
+      -DLLVM_BUILD_LLVM_DYLIB=OFF \
+      -DLLVM_LINK_LLVM_DYLIB=OFF \
+      -DLLVM_STATIC_LINK_CXX_STDLIB=OFF \
+      -DCMAKE_SHARED_LINKER_FLAGS='' \
+      -DLLVM_INCLUDE_EXAMPLES=OFF \
+      -DLLVM_INCLUDE_BENCHMARKS=OFF \
+    && cmake --build /src/llvm-project/build --parallel "${LLVM_BUILD_JOBS}" \
+    && cmake --install /src/llvm-project/build
+
+RUN cmake -S /src/llvm-project/compiler-rt -B /src/llvm-project/build-compiler-rt -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=/opt/llvm23 \
+      -DCMAKE_C_COMPILER=/opt/llvm23/bin/clang \
+      -DCMAKE_CXX_COMPILER=/opt/llvm23/bin/clang++ \
+      -DCMAKE_C_COMPILER_TARGET=x86_64-unknown-linux-gnu \
+      -DCMAKE_CXX_COMPILER_TARGET=x86_64-unknown-linux-gnu \
+      -DLLVM_CONFIG_PATH=/opt/llvm23/bin/llvm-config \
+      -DLLVM_CMAKE_DIR=/opt/llvm23/lib/cmake/llvm \
+      -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON \
+      -DCOMPILER_RT_BUILD_BUILTINS=ON \
+      -DCOMPILER_RT_BUILD_SANITIZERS=OFF \
+      -DCOMPILER_RT_BUILD_XRAY=OFF \
+      -DCOMPILER_RT_BUILD_LIBFUZZER=OFF \
+      -DCOMPILER_RT_BUILD_PROFILE=OFF \
+    && cmake --build /src/llvm-project/build-compiler-rt --parallel "${LLVM_BUILD_JOBS}" \
+    && cmake --install /src/llvm-project/build-compiler-rt \
+    && install -D -m 0644 \
+      /opt/llvm23/lib/x86_64-unknown-linux-gnu/libclang_rt.builtins.a \
+      /opt/llvm23/lib/clang/23/lib/x86_64-unknown-linux-gnu/libclang_rt.builtins.a
+
+FROM ${BASE_IMAGE}
+
+ARG LLVM_COMMIT=8f497e0992fb7513f7f78a6f6b6f1056c375e961
+ARG ACTIONS_RUNNER_VERSION=2.337.0
+ARG ACTIONS_RUNNER_SHA256=70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613
+
+LABEL org.opencontainers.image.source=https://github.com/GwokHiujin/avelang \
+      org.opencontainers.image.description="Reproducible ROCm/gfx950 CI environment for Avelang" \
+      io.avelang.base.digest=sha256:1438dd8b9000adaefb5828edb1cc5713992815d4296f4ad1a1e98dee4e9c7e5f \
+      io.avelang.llvm.commit=${LLVM_COMMIT} \
+      io.avelang.actions-runner.version=${ACTIONS_RUNNER_VERSION}
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV AMDGPU_TARGETS=gfx950
+ENV PYTORCH_ROCM_ARCH=gfx950
+ENV PATH=/opt/llvm23/bin:/opt/venv/bin:${PATH}
+
+COPY ci/apt-packages.txt /tmp/apt-packages.txt
+COPY ci/requirements-ci.txt /tmp/requirements-ci.txt
+
+RUN apt-get update \
+    && xargs -r apt-get install -y --no-install-recommends < /tmp/apt-packages.txt \
+    && rm -rf /var/lib/apt/lists/* \
+    && /opt/venv/bin/python -m pip install --no-cache-dir --upgrade \
+      -r /tmp/requirements-ci.txt
+
+COPY --from=llvm-builder /opt/llvm23 /opt/llvm23
+
+RUN mkdir -p /opt/actions-runner \
+    && curl --fail --location --retry 3 \
+      "https://github.com/actions/runner/releases/download/v${ACTIONS_RUNNER_VERSION}/actions-runner-linux-x64-${ACTIONS_RUNNER_VERSION}.tar.gz" \
+      --output /tmp/actions-runner.tar.gz \
+    && echo "${ACTIONS_RUNNER_SHA256}  /tmp/actions-runner.tar.gz" | sha256sum --check --strict \
+    && tar -xzf /tmp/actions-runner.tar.gz -C /opt/actions-runner \
+    && rm /tmp/actions-runner.tar.gz \
+    && test "$(/opt/actions-runner/bin/Runner.Listener --version)" = "${ACTIONS_RUNNER_VERSION}" \
+    && /opt/llvm23/bin/llvm-config --has-rtti | grep -qx YES \
+    && test "$(/opt/llvm23/bin/llvm-config --targets-built)" = "X86 AMDGPU"
+
+WORKDIR /workspace
+
+CMD ["sleep", "infinity"]
