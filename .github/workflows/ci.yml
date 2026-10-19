@@ -1,0 +1,87 @@
+name: Avelang ROCm CI
+
+on:
+  push:
+    branches:
+      - master
+      - dev-cicd
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: avelang-gfx950-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test on gfx950
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - rocm
+      - gfx950
+    timeout-minutes: 60
+
+    env:
+      AMDGPU_TARGETS: gfx950
+      PYTORCH_ROCM_ARCH: gfx950
+      BUILD_DIR: build/ci
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Configure runner environment
+        shell: bash
+        run: |
+          echo "/opt/llvm23/bin" >> "$GITHUB_PATH"
+          echo "/opt/venv/bin" >> "$GITHUB_PATH"
+          echo "PYTHONPATH=$GITHUB_WORKSPACE/python" >> "$GITHUB_ENV"
+
+      - name: Verify ROCm and LLVM environment
+        shell: bash
+        run: |
+          llvm-config --version
+          llvm-config --targets-built
+          hipcc --version
+          rocminfo | grep -m1 gfx950
+          python -c "import torch; assert torch.version.hip; assert torch.cuda.is_available(); print(torch.__version__, torch.version.hip, torch.cuda.get_device_name(0))"
+
+      - name: Configure CMake
+        shell: bash
+        run: |
+          rocm_prefix="$(hipconfig --rocmpath)"
+          cmake --fresh -S . -B "$BUILD_DIR" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DAVE_LANG_BACKEND=rocm \
+            -DWITH_PYTHON=ON \
+            -DCMAKE_C_COMPILER=/opt/llvm23/bin/clang \
+            -DCMAKE_CXX_COMPILER=/opt/llvm23/bin/clang++ \
+            -DCMAKE_PREFIX_PATH="/opt/llvm23;${rocm_prefix}" \
+            -DCMAKE_EXE_LINKER_FLAGS='-Wl,--exclude-libs,ALL' \
+            -DCMAKE_MODULE_LINKER_FLAGS='-Wl,--exclude-libs,ALL' \
+            -DPython3_ROOT_DIR=/opt/venv \
+            -DPython3_EXECUTABLE=/opt/venv/bin/python \
+            -DAVE_LANG_PYTHON_LIBRARY_OUTPUT_DIRECTORY="$GITHUB_WORKSPACE/python"
+
+      - name: Build with Ninja
+        shell: bash
+        run: ninja -C "$BUILD_DIR" -j"$(nproc)"
+
+      - name: Run native tests
+        shell: bash
+        run: ctest --test-dir "$BUILD_DIR" --output-on-failure --parallel "$(nproc)"
+
+      - name: Prepare source-tree Python package
+        shell: bash
+        run: python setup.py egg_info --egg-base python
+
+      - name: Run Python functionality tests
+        shell: bash
+        run: python -m pytest -q -ra test/
