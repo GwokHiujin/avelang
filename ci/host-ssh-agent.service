@@ -1,0 +1,16 @@
+[Unit]
+Description=Host-managed SSH agent for development
+Documentation=man:ssh-agent(1)
+
+[Service]
+Type=simple
+Environment=SSH_AUTH_SOCK=%t/host-ssh-agent.sock
+ExecStartPre=-/usr/bin/rm -f %t/host-ssh-agent.sock
+ExecStart=/usr/bin/ssh-agent -D -a %t/host-ssh-agent.sock
+ExecStartPost=/usr/bin/ssh-add %h/.ssh/id_ed25519
+ExecStopPost=-/usr/bin/rm -f %t/host-ssh-agent.sock
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

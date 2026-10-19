@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+agent_socket="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/host-ssh-agent.sock"
+container_socket=/run/host-services/ssh-auth.sock
+known_hosts="${HOME}/.ssh/known_hosts"
+
+if [[ ! -S "${agent_socket}" ]]; then
+  echo "Host SSH agent is unavailable at ${agent_socket}." >&2
+  echo "Start it with: systemctl --user start host-ssh-agent.service" >&2
+  exit 1
+fi
+
+if [[ ! -r "${known_hosts}" ]]; then
+  echo "Known-hosts file is unavailable at ${known_hosts}." >&2
+  exit 1
+fi
+
+exec podman run \
+  --volume="${agent_socket}:${container_socket}" \
+  --env="SSH_AUTH_SOCK=${container_socket}" \
+  --volume="${known_hosts}:/etc/ssh/ssh_known_hosts:ro" \
+  "$@"

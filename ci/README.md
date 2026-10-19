@@ -52,11 +52,25 @@ systemctl --user status avelang-ci-runner.service
 journalctl --user -u avelang-ci-runner.service --since today
 ```
 
-### GitHub SSH key
+### Host SSH identity and development containers
 
-The service mounts the host's `~/.ssh` directory read-only at `/root/.ssh`, so an Ed25519 key created on the host survives container replacement and is available to Git inside `ave-kda-mi355`. The unit refuses to start unless `~/.ssh/id_ed25519` and `known_hosts` are readable.
+The CI runner intentionally receives neither the host private key nor an SSH-agent socket. A workflow running on a self-hosted runner must be treated as capable of reading every credential mounted into that runner, even from read-only mounts. Normal checkout and artifact operations use the job-scoped `GITHUB_TOKEN`.
 
-Use a repository-scoped deploy key with write access rather than an account-wide key. Workflow code executed by a self-hosted runner can read any credential mounted into its container, even when the mount is read-only.
+The user's general development key remains at `~/.ssh/id_ed25519` on the Podman host. Install the persistent user agent and the opt-in Podman wrapper with:
+
+```bash
+./ci/install-host-ssh-agent.sh
+```
+
+Start a separate interactive GPU development container with agent forwarding:
+
+```bash
+./ci/dev-shell.sh
+```
+
+Or use `~/.local/bin/podman-with-host-ssh-agent` in place of `podman run` for another trusted development container. The wrapper bind-mounts only the agent socket and the public `known_hosts` file; it never copies or mounts the private key. Do not use the wrapper for CI runners or containers executing untrusted code.
+
+Release automation that genuinely requires an SSH credential should receive its own repository-scoped deploy key only for that trusted job. It must not reuse the user's account-wide development key.
 
 ## CI caches
 

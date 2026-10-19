@@ -10,11 +10,9 @@ EnvironmentFile=%h/dev/avelang/ci/image.env
 ExecStartPre=/usr/bin/test -x %h/dev/avelang/ci/runner-entrypoint.sh
 ExecStartPre=/usr/bin/test -r %h/dev/ave_action_runner/.runner
 ExecStartPre=/usr/bin/test -r %h/dev/ave_action_runner/.credentials
-ExecStartPre=/usr/bin/test -r %h/.ssh/id_ed25519
-ExecStartPre=/usr/bin/test -r %h/.ssh/known_hosts
 ExecStartPre=/usr/bin/podman image exists ${AVELANG_CI_IMAGE}
 ExecStartPre=-/usr/bin/podman rm --force --ignore --time 120 ave-kda-mi355
-ExecStart=/usr/bin/podman run --rm --name ave-kda-mi355 --runtime=%h/.local/crun-package/crun-local --device=/dev/kfd --device=/dev/dri --group-add=keep-groups --ipc=host --mount=type=tmpfs,destination=/dev/shm,tmpfs-size=34359738368 --ulimit=memlock=-1:-1 --volume=%h/dev:/workspace --volume=%h/.ssh:/root/.ssh:ro --workdir=/workspace/ave_action_runner --env=RUNNER_ALLOW_RUNASROOT=1 --env=RUNNER_MANUALLY_TRAP_SIG=1 --env=AMDGPU_TARGETS=gfx950 --env=PYTORCH_ROCM_ARCH=gfx950 ${AVELANG_CI_IMAGE} /workspace/avelang/ci/runner-entrypoint.sh
+ExecStart=/usr/bin/podman run --rm --name ave-kda-mi355 --runtime=%h/.local/crun-package/crun-local --device=/dev/kfd --device=/dev/dri --group-add=keep-groups --ipc=host --mount=type=tmpfs,destination=/dev/shm,tmpfs-size=34359738368 --ulimit=memlock=-1:-1 --volume=%h/dev:/workspace --workdir=/workspace/ave_action_runner --env=RUNNER_ALLOW_RUNASROOT=1 --env=RUNNER_MANUALLY_TRAP_SIG=1 --env=AMDGPU_TARGETS=gfx950 --env=PYTORCH_ROCM_ARCH=gfx950 ${AVELANG_CI_IMAGE} /workspace/avelang/ci/runner-entrypoint.sh
 ExecStop=/usr/bin/podman stop --ignore --time 120 ave-kda-mi355
 Restart=always
 RestartSec=10

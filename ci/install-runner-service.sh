@@ -20,4 +20,5 @@ fi
 
 install -D -m 0644 "${script_dir}/${unit_name}" "${unit_dir}/${unit_name}"
 systemctl --user daemon-reload
-systemctl --user enable --now "${unit_name}"
+systemctl --user enable "${unit_name}"
+systemctl --user restart "${unit_name}"
