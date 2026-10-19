@@ -52,6 +52,12 @@ systemctl --user status avelang-ci-runner.service
 journalctl --user -u avelang-ci-runner.service --since today
 ```
 
+### GitHub SSH key
+
+The service mounts the host's `~/.ssh` directory read-only at `/root/.ssh`, so an Ed25519 key created on the host survives container replacement and is available to Git inside `ave-kda-mi355`. The unit refuses to start unless `~/.ssh/id_ed25519` and `known_hosts` are readable.
+
+Use a repository-scoped deploy key with write access rather than an account-wide key. Workflow code executed by a self-hosted runner can read any credential mounted into its container, even when the mount is read-only.
+
 ## CI caches
 
 The workflow restores two toolchain-aware caches through `actions/cache`:
