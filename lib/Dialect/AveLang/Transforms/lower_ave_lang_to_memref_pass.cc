@@ -42,16 +42,19 @@ std::optional<int64_t> getStaticValue(mlir::Value value) {
     return ir::ConstantFolder::FoldIntValue(value);
 }
 
-mlir::Attribute normalizeBuiltinMemorySpace(mlir::MLIRContext *context,
+mlir::Attribute normalizeBuiltinMemorySpace(mlir::MLIRContext * /*context*/,
                                             mlir::Attribute memorySpace) {
     if (auto gpuSpace =
             mlir::dyn_cast_or_null<mlir::gpu::AddressSpaceAttr>(memorySpace)) {
         switch (gpuSpace.getValue()) {
         case mlir::gpu::AddressSpace::Private:
-            return mlir::IntegerAttr::get(mlir::IntegerType::get(context, 64),
-                                          5);
+            // Let the LLVM target lower generic allocas to its private address
+            // space. In particular, NVPTX must preserve the generic frame
+            // pointer for derived addresses before selecting local-memory ops.
+            return {};
         case mlir::gpu::AddressSpace::Global:
         case mlir::gpu::AddressSpace::Workgroup:
+        case mlir::gpu::AddressSpace::Constant:
             return memorySpace;
         }
     }

@@ -17,8 +17,6 @@ namespace causalflow::avelang::target::nvvm {
 
 using namespace mlir;
 
-static const int kIndexBitwidth = 32;
-
 static void buildCommonPassPipeline(OpPassManager &pm,
                                     const NVVMToLLVMPipelineOptions &options) {
     bufferization::OneShotBufferizePassOptions bufferizationOptions;
@@ -51,7 +49,8 @@ static void buildGpuPassPipeline(OpPassManager &pm,
     pm.addPass(createGpuNVVMAttachTarget(nvvmOptions));
 
     ConvertGpuOpsToNVVMOpsOptions convertOptions;
-    convertOptions.indexBitwidth = kIndexBitwidth;
+    // Derive the index width from the nvptx64 data layout. Forcing 32-bit
+    // indices leaves non-noop casts in LLVM's loop-strength-reduction path.
     convertOptions.useBarePtrCallConv = options.use_bare_ptr_memref_call_conv;
     pm.addNestedPass<gpu::GPUModuleOp>(
         createConvertGpuOpsToNVVMOps(convertOptions));

@@ -346,6 +346,19 @@ TEST_F(LLVMTargetTest, SharedMemory) {
     EXPECT_EQ(llvmDump.find("align 1, addrspace(5)"), std::string::npos);
 }
 
+TEST_F(LLVMTargetTest, PrivateMemoryUsesTargetAllocaAddressSpace) {
+    const std::string mlirCode = R"(module {
+  func.func @test_private_memory(%arg0: !ave.memref<!ave.layout<dims = [4], strides = [1]>, i32, #gpu.address_space<private>>) {
+    return
+  }
+})";
+
+    std::string lowered = LowerAveLangToMemRef(mlirCode);
+    ASSERT_FALSE(lowered.empty());
+    EXPECT_NE(lowered.find("memref<16xi8>"), std::string::npos) << lowered;
+    EXPECT_EQ(lowered.find("memref<16xi8, 5>"), std::string::npos) << lowered;
+}
+
 TEST_F(LLVMTargetTest, SharedMemoryUnionStyleSubviews) {
     const std::string mlirCode = R"(module {
   func.func @test_shared_memory_union_subviews(%arg0: !ave.memref<!ave.layout<dims = [8], strides = [1]>, bf16> {llvm.name = "output_data"}) attributes {ave.gpu_func = 2 : i32} {
