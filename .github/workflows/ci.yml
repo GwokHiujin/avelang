@@ -153,9 +153,13 @@ jobs:
         id: cache-paths
         shell: bash
         run: |
-          hunter_root="$RUNNER_TEMP/avelang-ci-cache/hunter"
+          hunter_root="/workspace/hunter-cache"
+          hunter_archive="$hunter_root/hunter-v0.26.12.tar.gz"
+          test -f "$hunter_archive"
           echo "hunter=$hunter_root" >> "$GITHUB_OUTPUT"
           echo "HUNTER_ROOT=$hunter_root" >> "$GITHUB_ENV"
+          echo "HUNTER_URL=file://$hunter_archive" >> "$GITHUB_ENV"
+          echo "HUNTER_SHA1=6498c5d0dec25d7fffb2b0574ebaf265179b894d" >> "$GITHUB_ENV"
 
       - name: Restore dependency cache
         uses: actions/cache@v6
@@ -194,6 +198,8 @@ jobs:
             -DCMAKE_PREFIX_PATH=/usr/local \
             -DCUDAToolkit_ROOT="$CUDA_HOME" \
             -DHUNTER_ROOT="$HUNTER_ROOT" \
+            -DHUNTER_URL="$HUNTER_URL" \
+            -DHUNTER_SHA1="$HUNTER_SHA1" \
             -DPython3_EXECUTABLE="$PYTHON_EXECUTABLE" \
             -DAVE_LANG_PYTHON_LIBRARY_OUTPUT_DIRECTORY="$GITHUB_WORKSPACE/python"
 
