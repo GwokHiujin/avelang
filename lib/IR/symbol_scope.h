@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <variant>
 
 #include <llvm/ADT/ArrayRef.h>
 
@@ -33,6 +34,10 @@ class SymbolScope {
 
     using TypeFactoryFunction = std::function<mlir::Type(
         NamedModule *, ast::Call *, GeneratorContext *)>;
+    struct TypeFactory {
+        NamedModule *module = nullptr;
+        TypeFactoryFunction implementation;
+    };
     struct Function {
         using Implementation = std::function<mlir::Value(
             ast::Call *, GeneratorContext *, llvm::ArrayRef<mlir::Value>)>;
@@ -68,27 +73,30 @@ class SymbolScope {
     };
 
     struct Symbol {
-        SymbolKind kind = kValue;
+        using Payload =
+            std::variant<std::monostate, NamedModule *, TypeFactory, Function,
+                         mlir::Type, mlir::Value, ConstexprValue>;
 
-        // Symbols are deliberately regular value types.  The former manual
-        // union made copying symbol-table snapshots unsafe as new symbol kinds
-        // were added.
-        NamedModule *module = nullptr;
-        TypeFactoryFunction type_factory;
-        Function function;
-        mlir::Type type;
-        mlir::Value value;
-        ConstexprValue constexpr_value;
-
-        Symbol();
+        Symbol() = default;
         Symbol(NamedModule *m);
-        Symbol(TypeFactoryFunction tf);
+        Symbol(TypeFactoryFunction tf, NamedModule *module = nullptr);
         Symbol(Function ff);
         Symbol(mlir::Type t);
         Symbol(mlir::Value v);
         Symbol(ConstexprValue v);
 
         bool isa(SymbolKind k) const;
+
+        NamedModule *GetModule() const;
+        TypeFactoryFunction GetTypeFactory() const;
+        Function GetFunction() const;
+        mlir::Type GetType() const;
+        mlir::Value GetValue() const;
+        ConstexprValue GetConstexpr() const;
+        const Payload &GetPayload() const { return payload_; }
+
+      private:
+        Payload payload_;
     };
 
     // Symbol storage and access
@@ -100,7 +108,8 @@ class SymbolScope {
     void AddConstexpr(const std::string &name, ConstexprValue value);
     void AddType(const std::string &name, mlir::Type type);
     void AddModule(const std::string &name, NamedModule *module);
-    void AddTypeFactory(const std::string &name, TypeFactoryFunction factory);
+    void AddTypeFactory(const std::string &name, TypeFactoryFunction factory,
+                        NamedModule *module = nullptr);
     void AddFunction(const std::string &name,
                      Function::Implementation implementation,
                      Function::Checker checker = nullptr);

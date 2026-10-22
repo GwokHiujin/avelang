@@ -1010,13 +1010,13 @@ mlir::Value ExprGenerator::VisitName(ast::Name *name) {
 
     if (symbol->isa(ir::SymbolScope::SymbolKind::kConstexpr)) {
         return parent_->MaterializeConstexpr(
-            name->GetId(), symbol->constexpr_value, GetMLIRLocation(name));
+            name->GetId(), symbol->GetConstexpr(), GetMLIRLocation(name));
     }
 
     if (!symbol->isa(ir::SymbolScope::SymbolKind::kValue))
         return nullptr;
 
-    auto value = symbol->value;
+    auto value = symbol->GetValue();
     if (!value)
         return nullptr;
 

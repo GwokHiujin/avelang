@@ -369,7 +369,7 @@ MLIRGeneratorImpl::EnsureMarker(ast::Expr *decorator) {
         return std::nullopt;
     }
 
-    auto marker_value = symbol->value;
+    auto marker_value = symbol->GetValue();
     if (!marker_value) {
         return std::nullopt;
     }

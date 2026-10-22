@@ -607,7 +607,7 @@ ConstantFolder::ResolveConstantReference(ast::Expr *expr) const {
         }
         if (symbol->isa(SymbolTable::SymbolKind::kConstexpr)) {
             if (auto integer = mlir::dyn_cast<mlir::IntegerAttr>(
-                    symbol->constexpr_value.attribute)) {
+                    symbol->GetConstexpr().attribute)) {
                 return integer.getInt();
             }
             return std::nullopt;
@@ -615,10 +615,10 @@ ConstantFolder::ResolveConstantReference(ast::Expr *expr) const {
         if (!symbol->isa(SymbolTable::SymbolKind::kValue)) {
             return std::nullopt;
         }
-        if (auto value = FoldIntValue(symbol->value)) {
+        if (auto value = FoldIntValue(symbol->GetValue())) {
             return value;
         }
-        return FoldScalarMemrefValue(symbol->value);
+        return FoldScalarMemrefValue(symbol->GetValue());
     }
 
     if (auto *attr = llvm::dyn_cast<ast::AttributeExpr>(expr)) {
@@ -629,7 +629,7 @@ ConstantFolder::ResolveConstantReference(ast::Expr *expr) const {
         }
         if (symbol->isa(SymbolTable::SymbolKind::kConstexpr)) {
             if (auto integer = mlir::dyn_cast<mlir::IntegerAttr>(
-                    symbol->constexpr_value.attribute)) {
+                    symbol->GetConstexpr().attribute)) {
                 return integer.getInt();
             }
             return std::nullopt;
@@ -637,10 +637,10 @@ ConstantFolder::ResolveConstantReference(ast::Expr *expr) const {
         if (!symbol->isa(SymbolTable::SymbolKind::kValue)) {
             return std::nullopt;
         }
-        if (auto value = FoldIntValue(symbol->value)) {
+        if (auto value = FoldIntValue(symbol->GetValue())) {
             return value;
         }
-        return FoldScalarMemrefValue(symbol->value);
+        return FoldScalarMemrefValue(symbol->GetValue());
     }
 
     return std::nullopt;

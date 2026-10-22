@@ -1028,7 +1028,7 @@ bool FunctionGenerator::ResolveNameAssignmentTarget(
         return false;
     }
     mlir::Value existing_value =
-        existing_symbol ? existing_symbol->value : mlir::Value();
+        existing_symbol ? existing_symbol->GetValue() : mlir::Value();
     if (existing_value && mlir::isa<cf::MemRefType>(existing_value.getType())) {
         auto memref_type = mlir::cast<cf::MemRefType>(existing_value.getType());
         memref = existing_value;
