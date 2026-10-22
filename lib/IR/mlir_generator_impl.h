@@ -34,8 +34,6 @@ namespace causalflow::avelang::ir {
 
 class MLIRGeneratorImpl;
 class FunctionGenerator;
-using ArgAddressSpaceMap = std::unordered_map<std::string, mlir::Attribute>;
-using ConstexprValueMap = std::unordered_map<std::string, mlir::Value>;
 
 class ExprGenerator : public ast::ASTVisitor<ExprGenerator, mlir::Value> {
   public:
@@ -85,9 +83,8 @@ class FunctionGenerator : public ast::ASTVisitor<FunctionGenerator> {
   public:
     explicit FunctionGenerator(MLIRGeneratorImpl &parent,
                                MLIRGenerator::FunctionType function_type,
-                               ArgAddressSpaceMap argument_address_spaces = {},
                                std::string name_prefix = {},
-                               ConstexprValueMap constexpr_values = {});
+                               llvm::ArrayRef<mlir::Value> arguments = {});
 
     MLIRGeneratorImpl &GetParent() { return parent_; }
     GeneratorContext *GetContext() { return ctx_; }
@@ -152,12 +149,10 @@ class FunctionGenerator : public ast::ASTVisitor<FunctionGenerator> {
     mlir::OpBuilder builder_;
     ExprGenerator expr_generator_;
     MLIRGenerator::FunctionType function_type_;
-    std::string local_symbol_scope_name_;
     std::string name_prefix_;
     std::string qualified_scope_prefix_;
     const ast::FunctionDef *current_func_ = nullptr;
-    ArgAddressSpaceMap argument_address_spaces_;
-    ConstexprValueMap constexpr_values_;
+    llvm::SmallVector<mlir::Value, 4> argument_values_;
     mlir::Block *entry_block_ = nullptr;
 };
 
@@ -174,14 +169,10 @@ class MLIRGeneratorImpl {
   private:
     friend class ExprGenerator;
     friend class FunctionGenerator;
-    std::string GetMangledFunctionName(
-        ast::FunctionDef *func,
-        const ArgAddressSpaceMap *arg_address_spaces = nullptr,
-        llvm::StringRef name_prefix = {},
-        const ConstexprValueMap *constexpr_values = nullptr);
-    std::string GetFunctionScopeName(
-        ast::FunctionDef *func,
-        const ArgAddressSpaceMap *arg_address_spaces = nullptr);
+    std::string
+    GetMangledFunctionName(ast::FunctionDef *func,
+                           llvm::StringRef name_prefix = {},
+                           llvm::ArrayRef<mlir::Value> arguments = {});
     std::string getArgName(ast::ASTNode *arg);
     void HandleImport(ast::Import *import_stmt);
     void HandleImportFrom(ast::ImportFrom *import_from_stmt);

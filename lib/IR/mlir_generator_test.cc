@@ -862,6 +862,7 @@ def kernel(a: S.Tensor((4,), S.i32)):
     local = S.make_local((4,), S.i32)
     shared_view = S.view(shared, S.Tensor((4,), S.i32))
     local_view = S.view(local, S.Tensor((4,), S.i32))
+    helper(a)
     helper(shared_view)
     helper(local_view)
 )""""";
@@ -889,17 +890,21 @@ def kernel(a: S.Tensor((4,), S.i32)):
     ASSERT_TRUE(mlir::succeeded(mlir::verify(module)))
         << "MLIR verification failed!";
 
+    mlir::func::FuncOp default_func;
     mlir::func::FuncOp workgroup_func;
     mlir::func::FuncOp private_func;
     module.walk([&](mlir::func::FuncOp func) {
         auto name = func.getName().str();
-        if (name == "kernel_helper__as_workgroup") {
+        if (name == "kernel_helper__as_default") {
+            default_func = func;
+        } else if (name == "kernel_helper__as_workgroup") {
             workgroup_func = func;
         } else if (name == "kernel_helper__as_private") {
             private_func = func;
         }
     });
 
+    ASSERT_TRUE(default_func);
     ASSERT_TRUE(workgroup_func);
     ASSERT_TRUE(private_func);
 
@@ -919,6 +924,11 @@ def kernel(a: S.Tensor((4,), S.i32)):
     check_address_space(workgroup_func, mlir::gpu::AddressSpace::Workgroup);
     check_address_space(private_func, mlir::gpu::AddressSpace::Private);
 
+    ASSERT_EQ(default_func.getNumArguments(), 1u);
+    auto default_memref =
+        mlir::dyn_cast<cf::MemRefType>(default_func.getArgument(0).getType());
+    ASSERT_TRUE(default_memref);
+    EXPECT_FALSE(default_memref.getMemorySpace());
 }
 
 TEST_F(MLIRGeneratorTest, GenerateMLIRJitFunctionWithReturnCall) {

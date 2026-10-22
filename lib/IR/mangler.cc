@@ -153,18 +153,6 @@ std::optional<std::string> MangleConstexprValueTag(mlir::Value value) {
     return std::nullopt;
 }
 
-template <typename T>
-std::optional<T>
-FindBinding(llvm::ArrayRef<std::pair<std::string, T>> bindings,
-            llvm::StringRef name) {
-    for (const auto &[bindingName, value] : bindings) {
-        if (bindingName == name) {
-            return value;
-        }
-    }
-    return std::nullopt;
-}
-
 bool IsConstexprArg(ast::Arg *arg) {
     auto *attrExpr =
         llvm::dyn_cast_or_null<ast::AttributeExpr>(arg->GetAnnotation());
@@ -209,10 +197,9 @@ std::string BuildMangledName(llvm::ArrayRef<std::string> scope,
 
 } // namespace
 
-std::string MangleFunctionName(
-    ast::FunctionDef *func, llvm::ArrayRef<std::string> scope,
-    llvm::ArrayRef<std::pair<std::string, mlir::Attribute>> addressSpaces,
-    llvm::ArrayRef<std::pair<std::string, mlir::Value>> constexprValues) {
+std::string MangleFunctionName(ast::FunctionDef *func,
+                               llvm::ArrayRef<std::string> scope,
+                               llvm::ArrayRef<mlir::Value> arguments) {
     if (!func) {
         return {};
     }
@@ -220,17 +207,21 @@ std::string MangleFunctionName(
     llvm::SmallVector<std::string, 4> addressSpaceTags;
     llvm::SmallVector<std::string, 4> constexprTags;
     if (auto *args = func->GetArguments()) {
-        for (auto *arg : args->GetArgs()) {
+        const auto &parameters = args->GetArgs();
+        if (parameters.size() != arguments.size()) {
+            return {};
+        }
+        for (auto [index, arg] : llvm::enumerate(parameters)) {
             if (!arg) {
                 continue;
             }
+            auto value = arguments[index];
             const auto &argName = arg->GetArgName();
             if (IsConstexprArg(arg)) {
-                auto value = FindBinding(constexprValues, argName);
                 if (!value) {
-                    continue;
+                    return {};
                 }
-                auto tag = MangleConstexprValueTag(*value);
+                auto tag = MangleConstexprValueTag(value);
                 if (!tag) {
                     return {};
                 }
@@ -239,9 +230,12 @@ std::string MangleFunctionName(
                 continue;
             }
 
-            auto addressSpace = FindBinding(addressSpaces, argName);
-            if (addressSpace) {
-                addressSpaceTags.push_back(MangleAddressSpace(*addressSpace));
+            if (value) {
+                if (auto memrefType =
+                        mlir::dyn_cast<cf::MemRefType>(value.getType())) {
+                    addressSpaceTags.push_back(
+                        MangleAddressSpace(memrefType.getMemorySpace()));
+                }
             }
         }
     }

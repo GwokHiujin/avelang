@@ -228,42 +228,9 @@ MLIRGeneratorImpl::MLIRGeneratorImpl(GeneratorContext *context)
     named_module_registry_.Initialize();
 }
 
-static llvm::SmallVector<std::pair<std::string, mlir::Attribute>, 4>
-ToAddressSpaceBindings(const ArgAddressSpaceMap *arg_address_spaces) {
-    llvm::SmallVector<std::pair<std::string, mlir::Attribute>, 4> bindings;
-    if (!arg_address_spaces) {
-        return bindings;
-    }
-    for (const auto &[name, address_space] : *arg_address_spaces) {
-        bindings.emplace_back(name, address_space);
-    }
-    return bindings;
-}
-
-static llvm::SmallVector<std::pair<std::string, mlir::Value>, 4>
-ToConstexprBindings(const ConstexprValueMap *constexpr_values) {
-    llvm::SmallVector<std::pair<std::string, mlir::Value>, 4> bindings;
-    if (!constexpr_values) {
-        return bindings;
-    }
-    for (const auto &[name, value] : *constexpr_values) {
-        bindings.emplace_back(name, value);
-    }
-    return bindings;
-}
-
-std::string MLIRGeneratorImpl::GetFunctionScopeName(
-    ast::FunctionDef *func, const ArgAddressSpaceMap *arg_address_spaces) {
-    if (!func) {
-        return {};
-    }
-    auto address_spaces = ToAddressSpaceBindings(arg_address_spaces);
-    return MangleFunctionName(func, {}, address_spaces, {});
-}
-
 std::string MLIRGeneratorImpl::GetMangledFunctionName(
-    ast::FunctionDef *func, const ArgAddressSpaceMap *arg_address_spaces,
-    llvm::StringRef name_prefix, const ConstexprValueMap *constexpr_values) {
+    ast::FunctionDef *func, llvm::StringRef name_prefix,
+    llvm::ArrayRef<mlir::Value> arguments) {
     if (!func) {
         return {};
     }
@@ -275,9 +242,7 @@ std::string MLIRGeneratorImpl::GetMangledFunctionName(
     if (!name_prefix.empty()) {
         scope.push_back(name_prefix.str());
     }
-    auto address_spaces = ToAddressSpaceBindings(arg_address_spaces);
-    auto constexprs = ToConstexprBindings(constexpr_values);
-    return MangleFunctionName(func, scope, address_spaces, constexprs);
+    return MangleFunctionName(func, scope, arguments);
 }
 
 mlir::ModuleOp MLIRGeneratorImpl::CreateModule() {

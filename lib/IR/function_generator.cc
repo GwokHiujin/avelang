@@ -26,6 +26,7 @@
 
 #include <llvm/ADT/APFloat.h>
 #include <llvm/ADT/ArrayRef.h>
+#include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallVector.h>
 
 namespace causalflow::avelang::ir {
@@ -127,15 +128,13 @@ CanImplicitlyDemoteConstantWithoutPrecisionLoss(mlir::Value value,
 
 FunctionGenerator::FunctionGenerator(MLIRGeneratorImpl &parent,
                                      MLIRGenerator::FunctionType function_type,
-                                     ArgAddressSpaceMap argument_address_spaces,
                                      std::string name_prefix,
-                                     ConstexprValueMap constexpr_values)
+                                     llvm::ArrayRef<mlir::Value> arguments)
     : parent_(parent), ctx_(parent.ctx_),
       builder_(parent.ctx_->ir_context->GetMLIRContext()),
       expr_generator_(this), function_type_(function_type),
       name_prefix_(std::move(name_prefix)),
-      argument_address_spaces_(std::move(argument_address_spaces)),
-      constexpr_values_(std::move(constexpr_values)) {
+      argument_values_(arguments.begin(), arguments.end()) {
     SS_ASSERT(ctx_);
 }
 
@@ -170,15 +169,6 @@ void FunctionGenerator::Generate(ast::FunctionDef *func) {
     mlir::OpBuilder::InsertionGuard insertion_guard(builder_);
 
     current_func_ = func;
-    local_symbol_scope_name_ =
-        parent_.GetFunctionScopeName(func, &argument_address_spaces_);
-    qualified_scope_prefix_ = name_prefix_;
-    if (!local_symbol_scope_name_.empty()) {
-        if (!qualified_scope_prefix_.empty()) {
-            qualified_scope_prefix_.push_back('_');
-        }
-        qualified_scope_prefix_.append(local_symbol_scope_name_);
-    }
 
     auto args = func->GetArguments();
     if (args &&
@@ -197,10 +187,17 @@ void FunctionGenerator::Generate(ast::FunctionDef *func) {
     SmallVector<mlir::Type> argTypes;
     SmallVector<mlir::DictionaryAttr> argAttrs;
     SmallVector<TypeInfo> argTypeInfos;
-    SmallVector<std::string> argNames;
     SmallVector<mlir::Location> argLocs;
+    if (function_type_ == MLIRGenerator::FunctionType::kPrivateFunction &&
+        args && args->GetArgs().size() != argument_values_.size()) {
+        ctx_->diagnostic_manager->Report(basic::DiagnosticCode::kTypeMismatch,
+                                         func->GetSourceRange().getBegin())
+            << "Private function specialization has the wrong number of "
+               "arguments";
+        return;
+    }
     if (args) {
-        for (auto *arg : args->GetArgs()) {
+        for (auto [argumentIndex, arg] : llvm::enumerate(args->GetArgs())) {
             auto name = arg->GetArgName();
             auto annotation = arg->GetAnnotation();
 
@@ -231,11 +228,30 @@ void FunctionGenerator::Generate(ast::FunctionDef *func) {
                 return;
             }
             if (auto memref_type = mlir::dyn_cast<cf::MemRefType>(type)) {
-                auto it = argument_address_spaces_.find(name);
-                if (it != argument_address_spaces_.end() && it->second) {
+                mlir::Attribute addressSpace;
+                bool hasArgumentMemref = false;
+                if (argumentIndex < argument_values_.size()) {
+                    auto argumentType =
+                        argument_values_[argumentIndex]
+                            ? argument_values_[argumentIndex].getType()
+                            : mlir::Type();
+                    if (auto argumentMemref =
+                            mlir::dyn_cast<cf::MemRefType>(argumentType)) {
+                        hasArgumentMemref = true;
+                        addressSpace = argumentMemref.getMemorySpace();
+                    }
+                }
+                if (!hasArgumentMemref &&
+                    function_type_ ==
+                        MLIRGenerator::FunctionType::kPrivateFunction) {
+                    addressSpace = mlir::gpu::AddressSpaceAttr::get(
+                        builder_.getContext(),
+                        mlir::gpu::AddressSpace::Private);
+                }
+                if (addressSpace) {
                     type = cf::MemRefType::get(
                         builder_.getContext(), memref_type.getLayout(),
-                        memref_type.getElementType(), it->second);
+                        memref_type.getElementType(), addressSpace);
                 }
             }
 
@@ -247,7 +263,6 @@ void FunctionGenerator::Generate(ast::FunctionDef *func) {
             }
             argAttrs.push_back(
                 mlir::DictionaryAttr::get(builder_.getContext(), attrs));
-            argNames.push_back(name);
             argTypes.push_back(type);
             argTypeInfos.push_back(GetTypeInfo(annotation));
             argLocs.push_back(mlir_loc);
@@ -344,9 +359,8 @@ void FunctionGenerator::Generate(ast::FunctionDef *func) {
 
     std::string mangled_name;
     if (function_type_ == MLIRGenerator::FunctionType::kPrivateFunction) {
-        mangled_name = parent_.GetMangledFunctionName(
-            func, &argument_address_spaces_, name_prefix_,
-            &constexpr_values_);
+        mangled_name = parent_.GetMangledFunctionName(func, name_prefix_,
+                                                      argument_values_);
         if (mangled_name.empty()) {
             ctx_->diagnostic_manager->Report(
                 basic::DiagnosticCode::kUnimplemented,
@@ -362,6 +376,7 @@ void FunctionGenerator::Generate(ast::FunctionDef *func) {
         function_type_ == MLIRGenerator::FunctionType::kPrivateFunction
             ? mangled_name
             : func->GetName();
+    qualified_scope_prefix_ = func_name;
     auto func_op = func::FuncOp::create(
         builder_, ctx_->GetMLIRLocation(builder_.getContext(), func), func_name,
         FT);
@@ -394,8 +409,9 @@ void FunctionGenerator::Generate(ast::FunctionDef *func) {
         immutableValueLocations.emplace(name, GetMLIRLocation(func));
     }
 
+    size_t runtimeArgumentIndex = 0;
     if (args) {
-        for (auto *arg : args->GetArgs()) {
+        for (auto [argumentIndex, arg] : llvm::enumerate(args->GetArgs())) {
             auto *annotation = arg ? arg->GetAnnotation() : nullptr;
             auto *attribute =
                 llvm::dyn_cast_or_null<ast::AttributeExpr>(annotation);
@@ -403,12 +419,15 @@ void FunctionGenerator::Generate(ast::FunctionDef *func) {
             if (!isConstexpr) {
                 immutableValues.erase(arg->GetArgName());
                 immutableValueLocations.erase(arg->GetArgName());
+                ctx_->syms->DefineSymbol(
+                    arg->GetArgName(),
+                    entry_block.getArgument(runtimeArgumentIndex++));
                 continue;
             }
 
-            auto value = constexpr_values_.find(arg->GetArgName());
-            if (value != constexpr_values_.end()) {
-                immutableValues[arg->GetArgName()] = value->second;
+            if (argumentIndex < argument_values_.size()) {
+                immutableValues[arg->GetArgName()] =
+                    argument_values_[argumentIndex];
             }
             immutableValueLocations.insert_or_assign(arg->GetArgName(),
                                                      GetMLIRLocation(arg));
@@ -424,11 +443,6 @@ void FunctionGenerator::Generate(ast::FunctionDef *func) {
                 return;
             }
         }
-    }
-
-    // Add runtime function arguments to the symbol table.
-    for (size_t i = 0; i < argNames.size(); ++i) {
-        ctx_->syms->DefineSymbol(argNames[i], entry_block.getArgument(i));
     }
 
     for (const auto &[name, source] : immutableValues) {
@@ -524,23 +538,22 @@ void FunctionGenerator::VisitReturn(ast::Return *ret) {
                     return;
                 }
 
-                auto prepare_return_value =
-                    [&](mlir::Value value, unsigned result_index) {
-                        auto expected_type =
-                            func_op.getFunctionType().getResult(result_index);
-                        auto cast_value = expr_generator_.CastTensorVector(
-                            value, expected_type,
-                            value_expr->GetSourceRange().getBegin());
-                        if (cast_value &&
-                            cast_value.getType() != expected_type) {
-                            cast_value = CreateTypeConversion(
-                                cast_value, cast_value.getType(), expected_type,
-                                return_loc, builder_);
-                        }
-                        return cast_value && cast_value.getType() == expected_type
-                                   ? cast_value
-                                   : mlir::Value();
-                    };
+                auto prepare_return_value = [&](mlir::Value value,
+                                                unsigned result_index) {
+                    auto expected_type =
+                        func_op.getFunctionType().getResult(result_index);
+                    auto cast_value = expr_generator_.CastTensorVector(
+                        value, expected_type,
+                        value_expr->GetSourceRange().getBegin());
+                    if (cast_value && cast_value.getType() != expected_type) {
+                        cast_value = CreateTypeConversion(
+                            cast_value, cast_value.getType(), expected_type,
+                            return_loc, builder_);
+                    }
+                    return cast_value && cast_value.getType() == expected_type
+                               ? cast_value
+                               : mlir::Value();
+                };
 
                 if (num_results == 1) {
                     if (return_value.getDefiningOp<cf::MakeIntTupleOp>()) {
@@ -590,8 +603,7 @@ void FunctionGenerator::VisitReturn(ast::Return *ret) {
                 llvm::SmallVector<mlir::Value> cast_values;
                 cast_values.reserve(tuple_values.size());
                 for (size_t i = 0; i < tuple_values.size(); ++i) {
-                    auto cast_value =
-                        prepare_return_value(tuple_values[i], i);
+                    auto cast_value = prepare_return_value(tuple_values[i], i);
                     if (!cast_value) {
                         ctx_->diagnostic_manager->Report(
                             basic::DiagnosticCode::kTypeMismatch,
@@ -1381,8 +1393,7 @@ void FunctionGenerator::VisitIf(ast::If *if_stmt) {
 
     if (auto folded = ConstantFolder::FoldBoolValue(condition)) {
         SymbolTable::FrameGuard guard(ctx_->syms.get());
-        const auto &body =
-            *folded ? if_stmt->GetBody() : if_stmt->GetOrelse();
+        const auto &body = *folded ? if_stmt->GetBody() : if_stmt->GetOrelse();
         for (auto *stmt : body) {
             DispatchStmt(stmt);
             if (IsInsertionPointTerminated(builder_)) {
