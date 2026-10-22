@@ -365,22 +365,22 @@ ConstantFolder::FoldFloatValue(mlir::Value value) {
     if (auto sub = value.getDefiningOp<mlir::arith::SubFOp>()) {
         return foldBinary(sub.getLhs(), sub.getRhs(),
                           [](llvm::APFloat &lhs, const llvm::APFloat &rhs) {
-                              lhs.subtract(
-                                  rhs, llvm::APFloat::rmNearestTiesToEven);
+                              lhs.subtract(rhs,
+                                           llvm::APFloat::rmNearestTiesToEven);
                           });
     }
     if (auto mul = value.getDefiningOp<mlir::arith::MulFOp>()) {
         return foldBinary(mul.getLhs(), mul.getRhs(),
                           [](llvm::APFloat &lhs, const llvm::APFloat &rhs) {
-                              lhs.multiply(
-                                  rhs, llvm::APFloat::rmNearestTiesToEven);
+                              lhs.multiply(rhs,
+                                           llvm::APFloat::rmNearestTiesToEven);
                           });
     }
     if (auto div = value.getDefiningOp<mlir::arith::DivFOp>()) {
         return foldBinary(div.getLhs(), div.getRhs(),
                           [](llvm::APFloat &lhs, const llvm::APFloat &rhs) {
-                              lhs.divide(
-                                  rhs, llvm::APFloat::rmNearestTiesToEven);
+                              lhs.divide(rhs,
+                                         llvm::APFloat::rmNearestTiesToEven);
                           });
     }
     if (auto neg = value.getDefiningOp<mlir::arith::NegFOp>()) {
@@ -551,47 +551,47 @@ std::optional<int64_t> ConstantFolder::FoldIntValue(mlir::Value value) {
     return std::nullopt;
 }
 
-std::optional<ConstexprValue>
-ConstantFolder::FoldConstexprValue(mlir::Value value) {
+mlir::Value ConstantFolder::FoldConstexprValue(mlir::Value value,
+                                               mlir::OpBuilder &builder,
+                                               mlir::Location location) {
     if (!value) {
-        return std::nullopt;
+        return mlir::Value();
     }
-
-    ConstexprValue result;
-    result.type_info = GetTypeInfo(value);
 
     if (auto constant = value.getDefiningOp<mlir::arith::ConstantOp>()) {
-        result.attribute =
-            mlir::dyn_cast<mlir::TypedAttr>(constant.getValue());
-        if (result.attribute) {
-            return result;
+        if (mlir::isa<mlir::TypedAttr>(constant.getValue())) {
+            return value;
         }
     }
 
+    mlir::TypedAttr attribute;
     if (value.getType().isInteger(1)) {
         if (auto folded = FoldBoolValue(value)) {
-            result.attribute = mlir::IntegerAttr::get(value.getType(),
-                                                      *folded ? 1 : 0);
-            return result;
+            attribute =
+                mlir::IntegerAttr::get(value.getType(), *folded ? 1 : 0);
         }
-    }
-
-    if (value.getType().isIntOrIndex()) {
+    } else if (value.getType().isIntOrIndex()) {
         if (auto folded = FoldIntValue(value)) {
-            result.attribute =
-                mlir::IntegerAttr::get(value.getType(), *folded);
-            return result;
+            if (value.getType().isIndex()) {
+                attribute = builder.getIndexAttr(*folded);
+            } else {
+                attribute = mlir::IntegerAttr::get(value.getType(), *folded);
+            }
         }
-    }
-
-    if (mlir::isa<mlir::FloatType>(value.getType())) {
+    } else if (mlir::isa<mlir::FloatType>(value.getType())) {
         if (auto folded = FoldFloatValue(value)) {
-            result.attribute = *folded;
-            return result;
+            attribute = *folded;
         }
     }
 
-    return std::nullopt;
+    if (!attribute) {
+        return mlir::Value();
+    }
+
+    auto constant =
+        mlir::arith::ConstantOp::create(builder, location, attribute);
+    SetTypeInfo(constant.getResult(), GetTypeInfo(value));
+    return constant.getResult();
 }
 
 std::optional<int64_t>
@@ -603,13 +603,6 @@ ConstantFolder::ResolveConstantReference(ast::Expr *expr) const {
     if (auto *name = llvm::dyn_cast<ast::Name>(expr)) {
         auto symbol = ctx_->syms->LookupSymbol(name->GetId());
         if (!symbol) {
-            return std::nullopt;
-        }
-        if (symbol->isa(SymbolTable::SymbolKind::kConstexpr)) {
-            if (auto integer = mlir::dyn_cast<mlir::IntegerAttr>(
-                    symbol->GetConstexpr().attribute)) {
-                return integer.getInt();
-            }
             return std::nullopt;
         }
         if (!symbol->isa(SymbolTable::SymbolKind::kValue)) {
@@ -625,13 +618,6 @@ ConstantFolder::ResolveConstantReference(ast::Expr *expr) const {
         auto symbol = ctx_->syms->ResolveSymbol(attr, std::nullopt,
                                                 /*report_not_found=*/false);
         if (!symbol) {
-            return std::nullopt;
-        }
-        if (symbol->isa(SymbolTable::SymbolKind::kConstexpr)) {
-            if (auto integer = mlir::dyn_cast<mlir::IntegerAttr>(
-                    symbol->GetConstexpr().attribute)) {
-                return integer.getInt();
-            }
             return std::nullopt;
         }
         if (!symbol->isa(SymbolTable::SymbolKind::kValue)) {

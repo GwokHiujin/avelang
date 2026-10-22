@@ -3,9 +3,11 @@
 #include "AST/ast_nodes_expr.h"
 #include "AST/ast_nodes_stmt.h"
 #include "Dialect/AveLang/IR/AveLangOps.h"
+#include "type_system.h"
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wambiguous-reversed-operator"
+#include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Operation.h>
@@ -13,7 +15,9 @@
 
 #include <cctype>
 #include <optional>
+#include <sstream>
 
+#include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallString.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/Casting.h>
@@ -114,26 +118,33 @@ std::string MangleType(mlir::Type type) {
     return SanitizeManglePart(os.str());
 }
 
-std::optional<std::string>
-MangleConstexprValueTag(const ConstexprValue &value) {
+std::optional<std::string> MangleConstexprValueTag(mlir::Value value) {
     if (!value) {
         return std::nullopt;
     }
 
-    std::string type = MangleType(value.GetType());
-    if (auto intValue =
-            mlir::dyn_cast<mlir::IntegerAttr>(value.attribute)) {
-        if (value.GetType().isInteger(1)) {
+    auto *definingOp = value.getDefiningOp();
+    if (!definingOp || !definingOp->hasTrait<mlir::OpTrait::ConstantLike>()) {
+        return std::nullopt;
+    }
+    auto attribute = definingOp->getAttrOfType<mlir::TypedAttr>("value");
+    if (!attribute) {
+        return std::nullopt;
+    }
+
+    std::string type = MangleType(value.getType());
+    if (auto intValue = mlir::dyn_cast<mlir::IntegerAttr>(attribute)) {
+        if (value.getType().isInteger(1)) {
             return type + "_" + (intValue.getValue().isZero() ? "0" : "1");
         }
         llvm::SmallString<32> storage;
         bool isUnsigned =
-            value.type_info.is_unsigned_integer.value_or(false);
+            GetTypeInfo(value).is_unsigned_integer.value_or(false);
         intValue.getValue().toString(storage, 10, !isUnsigned);
         return type + "_" + (isUnsigned ? "u" : "s") + "_" +
                SanitizeManglePart(storage);
     }
-    if (auto floatValue = mlir::dyn_cast<mlir::FloatAttr>(value.attribute)) {
+    if (auto floatValue = mlir::dyn_cast<mlir::FloatAttr>(attribute)) {
         std::string storage;
         llvm::raw_string_ostream os(storage);
         floatValue.print(os);
@@ -168,50 +179,32 @@ std::string BuildMangledName(llvm::ArrayRef<std::string> scope,
         return {};
     }
 
-    size_t totalSize = name.size();
+    std::stringstream mangled;
+    bool hasPart = false;
     for (const auto &part : scope) {
-        totalSize += part.size() + 1;
+        if (hasPart) {
+            mangled << '_';
+        }
+        mangled << part;
+        hasPart = true;
     }
+    if (hasPart) {
+        mangled << '_';
+    }
+    mangled << name.str();
     if (!addressSpaceTags.empty()) {
-        totalSize += 4; // "__as"
+        mangled << "__as";
         for (const auto &tag : addressSpaceTags) {
-            totalSize += tag.size() + 1;
+            mangled << '_' << tag;
         }
     }
     if (!constexprTags.empty()) {
-        totalSize += 4; // "__ce"
+        mangled << "__ce";
         for (const auto &tag : constexprTags) {
-            totalSize += tag.size() + 1;
+            mangled << '_' << tag;
         }
     }
-
-    std::string mangled;
-    mangled.reserve(totalSize);
-    for (const auto &part : scope) {
-        if (!mangled.empty()) {
-            mangled.push_back('_');
-        }
-        mangled.append(part);
-    }
-    if (!mangled.empty()) {
-        mangled.push_back('_');
-    }
-    mangled.append(name.data(), name.size());
-    if (!addressSpaceTags.empty()) {
-        mangled.append("__as");
-        for (const auto &tag : addressSpaceTags) {
-            mangled.push_back('_');
-            mangled.append(tag);
-        }
-    }
-    if (!constexprTags.empty()) {
-        mangled.append("__ce");
-        for (const auto &tag : constexprTags) {
-            mangled.push_back('_');
-            mangled.append(tag);
-        }
-    }
-    return mangled;
+    return mangled.str();
 }
 
 } // namespace
@@ -219,7 +212,7 @@ std::string BuildMangledName(llvm::ArrayRef<std::string> scope,
 std::string MangleFunctionName(
     ast::FunctionDef *func, llvm::ArrayRef<std::string> scope,
     llvm::ArrayRef<std::pair<std::string, mlir::Attribute>> addressSpaces,
-    llvm::ArrayRef<std::pair<std::string, ConstexprValue>> constexprValues) {
+    llvm::ArrayRef<std::pair<std::string, mlir::Value>> constexprValues) {
     if (!func) {
         return {};
     }

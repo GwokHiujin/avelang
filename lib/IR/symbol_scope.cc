@@ -14,9 +14,8 @@ SymbolScope::Symbol::Symbol(Function ff) : payload_(std::move(ff)) {}
 
 SymbolScope::Symbol::Symbol(mlir::Type t) : payload_(t) {}
 
-SymbolScope::Symbol::Symbol(mlir::Value v) : payload_(v) {}
-
-SymbolScope::Symbol::Symbol(ConstexprValue v) : payload_(std::move(v)) {}
+SymbolScope::Symbol::Symbol(mlir::Value v, bool immutable)
+    : payload_(v), immutable_(immutable) {}
 
 bool SymbolScope::Symbol::isa(SymbolKind k) const {
     switch (k) {
@@ -30,8 +29,6 @@ bool SymbolScope::Symbol::isa(SymbolKind k) const {
         return std::holds_alternative<mlir::Type>(payload_);
     case kValue:
         return std::holds_alternative<mlir::Value>(payload_);
-    case kConstexpr:
-        return std::holds_alternative<ConstexprValue>(payload_);
     }
     return false;
 }
@@ -66,11 +63,6 @@ mlir::Value SymbolScope::Symbol::GetValue() const {
     return value ? *value : mlir::Value();
 }
 
-ConstexprValue SymbolScope::Symbol::GetConstexpr() const {
-    auto *value = std::get_if<ConstexprValue>(&payload_);
-    return value ? *value : ConstexprValue();
-}
-
 void SymbolScope::AddSymbol(const std::string &name, const Symbol &symbol) {
     symbols_[name] = symbol;
 }
@@ -84,12 +76,9 @@ SymbolScope::LookupSymbol(const std::string &name) const {
     return std::nullopt;
 }
 
-void SymbolScope::AddValue(const std::string &name, mlir::Value value) {
-    symbols_[name] = Symbol(value);
-}
-
-void SymbolScope::AddConstexpr(const std::string &name, ConstexprValue value) {
-    symbols_[name] = Symbol(std::move(value));
+void SymbolScope::AddValue(const std::string &name, mlir::Value value,
+                           bool immutable) {
+    symbols_[name] = Symbol(value, immutable);
 }
 
 void SymbolScope::AddType(const std::string &name, mlir::Type type) {
@@ -123,15 +112,6 @@ mlir::Value SymbolScope::LookupValue(const std::string &name) const {
         return it->second.GetValue();
     }
     return mlir::Value();
-}
-
-std::optional<ConstexprValue>
-SymbolScope::LookupConstexpr(const std::string &name) const {
-    auto it = symbols_.find(name);
-    if (it != symbols_.end() && it->second.isa(kConstexpr)) {
-        return it->second.GetConstexpr();
-    }
-    return std::nullopt;
 }
 
 mlir::Type SymbolScope::LookupType(const std::string &name) const {

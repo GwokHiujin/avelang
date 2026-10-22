@@ -4,6 +4,7 @@
 #include "IR/ir_context.h"
 #include "IR/mlir_generator.h"
 #include "IR/symbol_table.h"
+#include "IR/type_system.h"
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wambiguous-reversed-operator"
@@ -135,6 +136,9 @@ class MLIRGeneratorTest : public ::testing::Test {
     void RegisterJitDependencies(ast::ASTNode *root,
                                  ir::MLIRGenerator &generator,
                                  const std::vector<std::string> &jit_deps);
+    mlir::Value DefineConstexpr(ir::MLIRGenerator &generator,
+                                llvm::StringRef name, mlir::TypedAttr attribute,
+                                ir::TypeInfo type_info = {});
 
     llvm::IntrusiveRefCntPtr<ast::ASTContext> context_;
     llvm::IntrusiveRefCntPtr<clang::DiagnosticIDs> diagIDs_;
@@ -149,6 +153,21 @@ void MLIRGeneratorTest::SetUp() {
     diagOpts_ = std::make_unique<clang::DiagnosticOptions>();
     diagHandler_.Clear();
     diagnostics_ = new basic::DiagnosticManager(&diagHandler_);
+}
+
+mlir::Value MLIRGeneratorTest::DefineConstexpr(ir::MLIRGenerator &generator,
+                                               llvm::StringRef name,
+                                               mlir::TypedAttr attribute,
+                                               ir::TypeInfo type_info) {
+    auto module = generator.CreateModule();
+    mlir::OpBuilder builder(module.getContext());
+    builder.setInsertionPointToStart(module.getBody());
+    auto constant = mlir::arith::ConstantOp::create(
+        builder, builder.getUnknownLoc(), attribute);
+    ir::SetTypeInfo(constant.getResult(), type_info);
+    generator.GetSymbolTable()->DefineSymbol(name.str(), constant.getResult(),
+                                             /*immutable=*/true);
+    return constant.getResult();
 }
 
 void MLIRGeneratorTest::TryParse(const std::string &source_code,
@@ -777,8 +796,7 @@ def kernel(input_data: S.Tensor((1,), S.i32),
     out[0] = helper(input_data[0])
 )""""";
 
-    RunMLIRGenerationErrorTest(kSourceCode,
-                               "must be a compile-time constant");
+    RunMLIRGenerationErrorTest(kSourceCode, "must be a compile-time constant");
 }
 
 TEST_F(MLIRGeneratorTest, MangleLargeConstexprInteger) {
@@ -818,8 +836,7 @@ def kernel(out: S.Tensor((4,), S.i32), flag: S.constexpr):
     auto module = generator.CreateModule();
 
     mlir::OpBuilder builder(ir_context->GetMLIRContext());
-    generator.GetSymbolTable()->DefineConstexpr(
-        "flag", ir::ConstexprValue{builder.getBoolAttr(true), {false}});
+    DefineConstexpr(generator, "flag", builder.getBoolAttr(true), {false});
 
     module = generator.Generate(root);
     ASSERT_TRUE(module);
@@ -901,6 +918,7 @@ def kernel(a: S.Tensor((4,), S.i32)):
 
     check_address_space(workgroup_func, mlir::gpu::AddressSpace::Workgroup);
     check_address_space(private_func, mlir::gpu::AddressSpace::Private);
+
 }
 
 TEST_F(MLIRGeneratorTest, GenerateMLIRJitFunctionWithReturnCall) {
@@ -1464,8 +1482,8 @@ def alloc_shared_aligned_test(output: S.Tensor((1,), S.i32)):
     mlir->walk([&](mlir::memref::AllocaOp op) {
         auto memrefType = op.getType();
         auto shape = memrefType.getShape();
-        if (!memrefType.getElementType().isInteger(8) ||
-            shape.size() != 1 || shape[0] != 32) {
+        if (!memrefType.getElementType().isInteger(8) || shape.size() != 1 ||
+            shape[0] != 32) {
             return;
         }
         auto addrSpace = mlir::dyn_cast_or_null<mlir::gpu::AddressSpaceAttr>(
@@ -2421,9 +2439,8 @@ def get_dpp_invalid(old: S.i32, src: S.i32):
 )""""";
 
     RunMLIRGenerationErrorTest(
-        kSourceCode,
-        "get_dpp() requires dpp_ctrl in [0, 2^32-1], row_mask and "
-        "bank_mask in [0, 15], and bound_ctrl in {0, 1}");
+        kSourceCode, "get_dpp() requires dpp_ctrl in [0, 2^32-1], row_mask and "
+                     "bank_mask in [0, 15], and bound_ctrl in {0, 1}");
 }
 
 TEST_F(MLIRGeneratorTest, GenerateMLIRWithConstexpr) {
@@ -2449,9 +2466,7 @@ def kernel(N: S.constexpr, data: S.Tensor((16,), S.i32)):
     auto module = generator.CreateModule();
 
     mlir::OpBuilder builder(ir_context->GetMLIRContext());
-    auto *symbol_table = generator.GetSymbolTable();
-    symbol_table->DefineConstexpr(
-        "N", ir::ConstexprValue{builder.getI32IntegerAttr(32), {false}});
+    DefineConstexpr(generator, "N", builder.getI32IntegerAttr(32), {false});
 
     // Generate the MLIR from the AST
     module = generator.Generate(root);
@@ -2472,36 +2487,45 @@ def kernel(N: S.constexpr, data: S.Tensor((16,), S.i32)):
     EXPECT_EQ(func.getNumArguments(), 1u);
 
     size_t materialization_count = 0;
+    mlir::arith::ConstantOp materialization;
     func.walk([&](mlir::arith::ConstantOp constant) {
         auto integer = mlir::dyn_cast<mlir::IntegerAttr>(constant.getValue());
         if (integer && integer.getInt() == 32) {
             ++materialization_count;
+            materialization = constant;
         }
     });
     EXPECT_EQ(materialization_count, 1u);
+    ASSERT_TRUE(materialization);
+    EXPECT_EQ(materialization->getBlock(), &func.getBody().front());
+    ASSERT_TRUE(ir::GetTypeInfo(materialization.getResult())
+                    .is_unsigned_integer.has_value());
+    EXPECT_FALSE(
+        *ir::GetTypeInfo(materialization.getResult()).is_unsigned_integer);
 }
 
-TEST_F(MLIRGeneratorTest, ConstexprSymbolSurvivesSymbolTableClone) {
+TEST_F(MLIRGeneratorTest, ImmutableConstantSurvivesSymbolTableClone) {
     auto ir_context = ir::IRContext::Create();
     ir::MLIRGenerator generator(ir_context.get(), diagnostics_);
     generator.CreateModule();
 
     mlir::OpBuilder builder(ir_context->GetMLIRContext());
-    ir::ConstexprValue value{builder.getI32IntegerAttr(32),
-                             ir::TypeInfo{/*is_unsigned_integer=*/true}};
-    generator.GetSymbolTable()->DefineConstexpr("N", value);
+    auto value = DefineConstexpr(generator, "N", builder.getI32IntegerAttr(32),
+                                 ir::TypeInfo{/*is_unsigned_integer=*/true});
 
     auto cloned_table = generator.GetSymbolTable()->Clone();
     auto cloned_symbol = cloned_table->LookupSymbol("N");
     ASSERT_TRUE(cloned_symbol);
-    ASSERT_TRUE(cloned_symbol->isa(ir::SymbolScope::kConstexpr));
-    EXPECT_EQ(cloned_symbol->GetConstexpr().attribute, value.attribute);
-    ASSERT_TRUE(cloned_symbol->GetConstexpr().type_info.is_unsigned_integer);
+    ASSERT_TRUE(cloned_symbol->isa(ir::SymbolScope::kValue));
+    EXPECT_TRUE(cloned_symbol->IsImmutable());
+    EXPECT_EQ(cloned_symbol->GetValue(), value);
+    ASSERT_TRUE(ir::GetTypeInfo(cloned_symbol->GetValue())
+                    .is_unsigned_integer.has_value());
     EXPECT_TRUE(
-        *cloned_symbol->GetConstexpr().type_info.is_unsigned_integer);
+        *ir::GetTypeInfo(cloned_symbol->GetValue()).is_unsigned_integer);
 }
 
-TEST_F(MLIRGeneratorTest, InjectConstexprStoresCanonicalSymbolOnly) {
+TEST_F(MLIRGeneratorTest, InjectConstexprStoresImmutableConstantValue) {
     auto ir_context = ir::IRContext::Create();
     ir::MLIRGenerator generator(ir_context.get(), diagnostics_);
     auto module = generator.CreateModule();
@@ -2514,9 +2538,11 @@ TEST_F(MLIRGeneratorTest, InjectConstexprStoresCanonicalSymbolOnly) {
 
     auto symbol = generator.GetSymbolTable()->LookupSymbol("N");
     ASSERT_TRUE(symbol);
-    ASSERT_TRUE(symbol->isa(ir::SymbolScope::kConstexpr));
-    auto integer = mlir::dyn_cast<mlir::IntegerAttr>(
-        symbol->GetConstexpr().attribute);
+    ASSERT_TRUE(symbol->isa(ir::SymbolScope::kValue));
+    EXPECT_TRUE(symbol->IsImmutable());
+    auto constant = symbol->GetValue().getDefiningOp<mlir::arith::ConstantOp>();
+    ASSERT_TRUE(constant);
+    auto integer = mlir::dyn_cast<mlir::IntegerAttr>(constant.getValue());
     ASSERT_TRUE(integer);
     EXPECT_EQ(integer.getInt(), 32);
     size_t module_constant_count = 0;
@@ -2524,7 +2550,52 @@ TEST_F(MLIRGeneratorTest, InjectConstexprStoresCanonicalSymbolOnly) {
         (void)constant;
         ++module_constant_count;
     }
-    EXPECT_EQ(module_constant_count, 0u);
+    EXPECT_EQ(module_constant_count, 1u);
+}
+
+TEST_F(MLIRGeneratorTest, UnusedConstexprMaterializationsAreEliminated) {
+    static const std::string kSourceCode = R""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def kernel(N: S.constexpr, data: S.Tensor((1,), S.i32)):
+    data[0] = 1
+)"""";
+
+    ast::ASTNode *root;
+    TryParse(kSourceCode, &root);
+    ASSERT_NE(root, nullptr);
+
+    auto ir_context = ir::IRContext::Create();
+    ir::MLIRGenerator generator(ir_context.get(), diagnostics_);
+    mlir::OpBuilder builder(ir_context->GetMLIRContext());
+    DefineConstexpr(generator, "N", builder.getI32IntegerAttr(32), {false});
+    auto module = generator.Generate(root);
+
+    size_t constexpr_constant_count = 0;
+    module.walk([&](mlir::arith::ConstantOp constant) {
+        auto integer = mlir::dyn_cast<mlir::IntegerAttr>(constant.getValue());
+        if (integer && integer.getInt() == 32) {
+            ++constexpr_constant_count;
+        }
+    });
+    EXPECT_EQ(constexpr_constant_count, 2u);
+
+    mlir::PassManager pm(module.getContext());
+    pm.addPass(mlir::createCanonicalizerPass());
+    pm.addPass(mlir::createSymbolDCEPass());
+    ASSERT_TRUE(mlir::succeeded(pm.run(module)));
+    ASSERT_TRUE(mlir::succeeded(mlir::verify(module)));
+
+    constexpr_constant_count = 0;
+    module.walk([&](mlir::arith::ConstantOp constant) {
+        auto integer = mlir::dyn_cast<mlir::IntegerAttr>(constant.getValue());
+        if (integer && integer.getInt() == 32) {
+            ++constexpr_constant_count;
+        }
+    });
+    EXPECT_EQ(constexpr_constant_count, 0u);
 }
 
 TEST_F(MLIRGeneratorTest, ConstexprRedefinitionError) {
@@ -2548,9 +2619,7 @@ def kernel(N: S.constexpr):
     auto module = generator.CreateModule();
 
     mlir::OpBuilder builder(ir_context->GetMLIRContext());
-    auto *symbol_table = generator.GetSymbolTable();
-    symbol_table->DefineConstexpr(
-        "N", ir::ConstexprValue{builder.getI32IntegerAttr(32), {false}});
+    DefineConstexpr(generator, "N", builder.getI32IntegerAttr(32), {false});
 
     // Generate the MLIR from the AST - should fail with immutable error
     module = generator.Generate(root);

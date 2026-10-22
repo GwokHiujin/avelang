@@ -115,7 +115,8 @@ ResolveCallerArgs(ExprGenerator *gen, ast::Call *call, ast::FunctionDef *callee,
         auto value = call_args[index];
         auto *annotation = calleeArg->GetAnnotation();
         if (IsConstexprAnnotation(annotation)) {
-            auto constexpr_value = ConstantFolder::FoldConstexprValue(value);
+            auto constexpr_value = ConstantFolder::FoldConstexprValue(
+                value, builder, gen->GetMLIRLocation(argExpr));
             if (!constexpr_value) {
                 std::string message =
                     "Argument '" + calleeArg->GetArgName() +
@@ -127,7 +128,7 @@ ResolveCallerArgs(ExprGenerator *gen, ast::Call *call, ast::FunctionDef *callee,
                 return std::nullopt;
             }
             result.constexpr_values.emplace(calleeArg->GetArgName(),
-                                            *constexpr_value);
+                                            constexpr_value);
             continue;
         }
 
@@ -1007,11 +1008,6 @@ mlir::Value ExprGenerator::VisitName(ast::Name *name) {
         name, std::nullopt, /*report_not_found=*/false);
     if (!symbol)
         return nullptr;
-
-    if (symbol->isa(ir::SymbolScope::SymbolKind::kConstexpr)) {
-        return parent_->MaterializeConstexpr(
-            name->GetId(), symbol->GetConstexpr(), GetMLIRLocation(name));
-    }
 
     if (!symbol->isa(ir::SymbolScope::SymbolKind::kValue))
         return nullptr;

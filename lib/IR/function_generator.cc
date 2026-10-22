@@ -21,6 +21,7 @@
 #include <mlir/IR/Value.h>
 #pragma clang diagnostic pop
 
+#include <map>
 #include <string>
 
 #include <llvm/ADT/APFloat.h>
@@ -66,6 +67,22 @@ static bool IsInsertionPointTerminated(mlir::OpBuilder &builder) {
     auto *previous_op = &*--insertion_point;
     return llvm::isa<cf::ReturnOp>(previous_op) ||
            previous_op->mightHaveTrait<mlir::OpTrait::IsTerminator>();
+}
+
+static mlir::Value CloneConstant(mlir::Value value, mlir::OpBuilder &builder,
+                                 mlir::Location location) {
+    auto *definingOp = value ? value.getDefiningOp() : nullptr;
+    if (!definingOp || !definingOp->hasTrait<mlir::OpTrait::ConstantLike>()) {
+        return mlir::Value();
+    }
+    auto attribute = definingOp->getAttrOfType<mlir::TypedAttr>("value");
+    if (!attribute) {
+        return mlir::Value();
+    }
+    auto constant =
+        mlir::arith::ConstantOp::create(builder, location, attribute);
+    SetTypeInfo(constant.getResult(), GetTypeInfo(value));
+    return constant.getResult();
 }
 
 static bool
@@ -133,30 +150,6 @@ FunctionGenerator::GetMLIRLocation(clang::SourceLocation loc) const {
 }
 
 mlir::ModuleOp FunctionGenerator::GetModule() const { return parent_.module_; }
-
-mlir::Value FunctionGenerator::MaterializeConstexpr(
-    llvm::StringRef name, const ConstexprValue &value,
-    mlir::Location location) {
-    auto existing = materialized_constexprs_.find(name.str());
-    if (existing != materialized_constexprs_.end()) {
-        return existing->second;
-    }
-    if (!entry_block_ || !value) {
-        return mlir::Value();
-    }
-
-    mlir::OpBuilder::InsertionGuard guard(builder_);
-    if (auto *terminator = entry_block_->getTerminator()) {
-        builder_.setInsertionPoint(terminator);
-    } else {
-        builder_.setInsertionPointToEnd(entry_block_);
-    }
-    auto materialized =
-        mlir::arith::ConstantOp::create(builder_, location, value.attribute);
-    SetTypeInfo(materialized, value.type_info);
-    materialized_constexprs_.emplace(name.str(), materialized);
-    return materialized;
-}
 
 mlir::Value FunctionGenerator::GenerateExpr(ast::Expr *expr) {
     if (!expr) {
@@ -394,20 +387,70 @@ void FunctionGenerator::Generate(ast::FunctionDef *func) {
     SymbolTable::FrameGuard guard(ctx_->syms.get());
 
     builder_.setInsertionPointToStart(&entry_block);
+    auto immutableValues = ctx_->syms->GetVisibleImmutableValues();
+    std::map<std::string, mlir::Location> immutableValueLocations;
+    for (const auto &[name, value] : immutableValues) {
+        (void)value;
+        immutableValueLocations.emplace(name, GetMLIRLocation(func));
+    }
+
+    if (args) {
+        for (auto *arg : args->GetArgs()) {
+            auto *annotation = arg ? arg->GetAnnotation() : nullptr;
+            auto *attribute =
+                llvm::dyn_cast_or_null<ast::AttributeExpr>(annotation);
+            bool isConstexpr = attribute && attribute->GetAttr() == "constexpr";
+            if (!isConstexpr) {
+                immutableValues.erase(arg->GetArgName());
+                immutableValueLocations.erase(arg->GetArgName());
+                continue;
+            }
+
+            auto value = constexpr_values_.find(arg->GetArgName());
+            if (value != constexpr_values_.end()) {
+                immutableValues[arg->GetArgName()] = value->second;
+            }
+            immutableValueLocations.insert_or_assign(arg->GetArgName(),
+                                                     GetMLIRLocation(arg));
+            if (immutableValues.find(arg->GetArgName()) ==
+                immutableValues.end()) {
+                ctx_->diagnostic_manager->Report(
+                    basic::DiagnosticCode::kUnimplemented,
+                    arg->GetSourceRange().getBegin())
+                    << "Missing compile-time value for constexpr argument '"
+                    << arg->GetArgName() << "'";
+                parent_.jit_function_ops_.erase(mangled_name);
+                func_op.erase();
+                return;
+            }
+        }
+    }
+
+    // Add runtime function arguments to the symbol table.
+    for (size_t i = 0; i < argNames.size(); ++i) {
+        ctx_->syms->DefineSymbol(argNames[i], entry_block.getArgument(i));
+    }
+
+    for (const auto &[name, source] : immutableValues) {
+        auto value =
+            CloneConstant(source, builder_, immutableValueLocations.at(name));
+        if (!value) {
+            ctx_->diagnostic_manager->Report(
+                basic::DiagnosticCode::kUnimplemented,
+                func->GetSourceRange().getBegin())
+                << "Invalid compile-time value for immutable symbol '" << name
+                << "'";
+            parent_.jit_function_ops_.erase(mangled_name);
+            func_op.erase();
+            return;
+        }
+        ctx_->syms->DefineSymbol(name, value, /*immutable=*/true);
+    }
+
     mlir::cf::BranchOp::create(
         builder_, ctx_->GetMLIRLocation(builder_.getContext(), func),
         &body_block);
     builder_.setInsertionPointToStart(&body_block);
-
-    // Add function arguments to symbol table.
-    // Note: constexpr parameters are already filtered out above, so all
-    // arguments here are runtime parameters that need to be defined.
-    for (size_t i = 0; i < argNames.size(); ++i) {
-        ctx_->syms->DefineSymbol(argNames[i], entry_block.getArgument(i));
-    }
-    for (const auto &[name, value] : constexpr_values_) {
-        ctx_->syms->GetCurrentFrame().AddConstexpr(name, value);
-    }
 
     for (auto *stmt : func->GetBody()) {
         DispatchStmt(stmt);
@@ -1012,8 +1055,7 @@ bool FunctionGenerator::ResolveNameAssignmentTarget(
 
     const std::string &target_name = name_target->GetId();
     auto existing_symbol = ctx_->syms->LookupSymbol(target_name);
-    if (existing_symbol &&
-        existing_symbol->isa(SymbolTable::SymbolKind::kConstexpr)) {
+    if (existing_symbol && existing_symbol->IsImmutable()) {
         ctx_->diagnostic_manager->Report(basic::DiagnosticCode::kUnimplemented,
                                          source_loc)
             << "Cannot assign to immutable (constexpr) variable '" +

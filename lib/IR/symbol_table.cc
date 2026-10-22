@@ -10,6 +10,7 @@
 
 #include <llvm/Support/Error.h>
 #include <ranges>
+#include <set>
 
 namespace causalflow::avelang::ir {
 
@@ -66,15 +67,10 @@ bool SymbolTable::ImportSymbolFrom(const std::string &module_name,
     return true;
 }
 
-void SymbolTable::DefineSymbol(const std::string &name, mlir::Value value) {
+void SymbolTable::DefineSymbol(const std::string &name, mlir::Value value,
+                               bool immutable) {
     auto &frame = GetCurrentFrame();
-    frame.AddValue(name, value);
-}
-
-void SymbolTable::DefineConstexpr(const std::string &name,
-                                  ConstexprValue value) {
-    auto &frame = GetCurrentFrame();
-    frame.AddConstexpr(name, std::move(value));
+    frame.AddValue(name, value, immutable);
 }
 
 std::optional<SymbolTable::Symbol>
@@ -87,6 +83,23 @@ SymbolTable::LookupSymbol(const std::string &name) const {
         }
     }
     return std::nullopt;
+}
+
+std::map<std::string, mlir::Value>
+SymbolTable::GetVisibleImmutableValues() const {
+    std::map<std::string, mlir::Value> values;
+    std::set<std::string> seen;
+    for (const auto &frame : frames_ | std::views::reverse) {
+        for (const auto &[name, symbol] : frame.GetSymbols()) {
+            if (!seen.insert(name).second) {
+                continue;
+            }
+            if (symbol.isa(SymbolKind::kValue) && symbol.IsImmutable()) {
+                values.emplace(name, symbol.GetValue());
+            }
+        }
+    }
+    return values;
 }
 
 void SymbolTable::DeclareModules(mlir::ModuleOp module) {
@@ -237,14 +250,6 @@ mlir::Value SymbolTable::ResolveRefExpr(ast::Expr *expr) {
     auto symbol =
         ResolveSymbol(expr, SymbolKind::kValue, /*report_not_found=*/false);
     return symbol ? symbol->GetValue() : mlir::Value();
-}
-
-std::optional<ConstexprValue>
-SymbolTable::ResolveConstexpr(ast::Expr *expr, bool report_not_found) {
-    auto symbol =
-        ResolveSymbol(expr, SymbolKind::kConstexpr, report_not_found);
-    return symbol ? std::optional<ConstexprValue>(symbol->GetConstexpr())
-                  : std::nullopt;
 }
 
 mlir::Type SymbolTable::ResolveBuiltinType(ast::Expr *expr) {

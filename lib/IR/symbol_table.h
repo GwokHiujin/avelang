@@ -45,21 +45,20 @@ class SymbolTable {
     mlir::Type ResolveBuiltinType(ast::Expr *annotation);
     // Resolve a reference expression to a value. return a null value if failed.
     mlir::Value ResolveRefExpr(ast::Expr *expr);
-    std::optional<ConstexprValue>
-    ResolveConstexpr(ast::Expr *expr, bool report_not_found = true);
     // Resolve a registered function for calling functions
     NamedModule::Function ResolveFunction(ast::Expr *expr);
 
     // Simple string-based symbol lookup (does not create AST nodes)
     std::optional<Symbol> LookupSymbol(const std::string &name) const;
+    std::map<std::string, mlir::Value> GetVisibleImmutableValues() const;
 
     bool ImportModule(const std::string &module_name,
                       const std::string &alias = "");
     bool ImportSymbolFrom(const std::string &module_name,
                           const std::string &symbol_name,
                           const std::string &alias = "");
-    void DefineSymbol(const std::string &name, mlir::Value value);
-    void DefineConstexpr(const std::string &name, ConstexprValue value);
+    void DefineSymbol(const std::string &name, mlir::Value value,
+                      bool immutable = false);
     void DeclareModules(mlir::ModuleOp module);
 
     // Use SymbolScope instead of Frame
