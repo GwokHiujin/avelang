@@ -199,15 +199,9 @@ MLIRGenerator::VisitFunctionDefWithType(ast::FunctionDef *func,
     impl_->SnapshotModuleSymbolTable();
 
     if (func_type == FunctionType::kPrivateFunction) {
-        if (auto *args = func->GetArguments()) {
-            for (auto *arg : args->GetArgs()) {
-                auto *annotation = llvm::dyn_cast_or_null<ast::AttributeExpr>(
-                    arg ? arg->GetAnnotation() : nullptr);
-                if (annotation && annotation->GetAttr() == "constexpr") {
-                    return llvm::Error::success();
-                }
-            }
-        }
+        // Private JIT functions are emitted lazily from their call sites,
+        // where concrete ordered argument values are available.
+        return llvm::Error::success();
     }
 
     FunctionGenerator function_generator(*impl_, func_type);
@@ -416,6 +410,11 @@ mlir::ModuleOp MLIRGeneratorImpl::Generate(ast::ASTNode *root) {
             auto func_type = ResolveFunctionType(func);
             if (!func_type ||
                 *func_type == MLIRGenerator::FunctionType::kHostFunction) {
+                continue;
+            }
+            if (*func_type == MLIRGenerator::FunctionType::kPrivateFunction) {
+                // Private JIT dependencies are specialized lazily at their
+                // call sites, once the ordered argument values are known.
                 continue;
             }
             SnapshotModuleSymbolTable();

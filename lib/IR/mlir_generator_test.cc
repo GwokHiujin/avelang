@@ -365,6 +365,10 @@ import avelang.language as S
 @avelang.jit
 def helper(a: S.f32):
     return a * 2.0
+
+@avelang.jit
+def kernel(out: S.Tensor((1,), S.f32)):
+    out[0] = helper(1.0)
 )"""";
     RunMLIRGenerationErrorTestWithJitDeps(
         kSourceCode, "has a return value but no return type annotation",
