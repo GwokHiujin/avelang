@@ -29,6 +29,12 @@ Use `al.bitcast(value, dtype)` when the bit pattern should be reinterpreted with
 word = al.bitcast(bits, al.u32)
 ```
 
+> Conversion is used when an expression is used in the context where a value of a different type is expected. 
+> Both `al.convert` and `al.bitcast` functions use the requested destination type exactly. 
+> However, there would be [implicit C++-compatible integer promotion](https://en.cppreference.com/c/language/conversion) when a scalar is used in an
+> arithmetic, comparison, bitwise, or shift expression that expecting a different result type. 
+> See Ave's implementation in [Automatic Integer Promotions In Expressions](../builtin-types/#automatic-integer-promotions-in-expressions).
+
 Ave also provides scalar math functions: `al.abs`, `al.exp2`, `al.exp`, `al.tanh`, `al.log`, `al.log2`, `al.erf`, and `al.sqrt`. Integer extrema are available through `al.min(lhs, rhs)` and `al.max(lhs, rhs)`.
 
 ```python

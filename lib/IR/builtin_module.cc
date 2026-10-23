@@ -1285,7 +1285,9 @@ CreateShuffleFunctionImpl(ast::Call *call_expr, GeneratorContext *ctx,
 
     auto shuffle = mlir::gpu::ShuffleOp::create(builder, location, value,
                                                 offset, width, mode);
-    return shuffle.getShuffleResult();
+    auto result = shuffle.getShuffleResult();
+    SetTypeInfo(result, GetTypeInfo(value));
+    return result;
 }
 
 mlir::Value AveLangModule::CreateShuffleFunction(
