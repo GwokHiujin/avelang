@@ -19,6 +19,10 @@ def mfma_16x16x16_bf16_f32(a, b, c):
     pass
 
 
+def mfma_16x16x32_bf16_f32(a, b, c):
+    pass
+
+
 def mfma_f32_16x16x16_bf16(a, b, c):
     pass
 

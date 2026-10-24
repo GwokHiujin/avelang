@@ -39,6 +39,13 @@ module {
     return %3 : vector<4xf32>
   }
 
+  func.func private @_avelang_amdgpu_rocdl_mfma_f32_16x16x32_bf16(%arg0: vector<4xi32>, %arg1: vector<4xi32>, %arg2: vector<4xf32>) -> vector<4xf32> attributes {func.inline = "always"} {
+    %a_bf16 = vector.bitcast %arg0 : vector<4xi32> to vector<8xbf16>
+    %b_bf16 = vector.bitcast %arg1 : vector<4xi32> to vector<8xbf16>
+    %3 = rocdl.mfma.f32.16x16x32.bf16 %a_bf16, %b_bf16, %arg2, 0, 0, 0 : (vector<8xbf16>, vector<8xbf16>, vector<4xf32>) -> vector<4xf32>
+    return %3 : vector<4xf32>
+  }
+
   func.func private @_avelang_amdgpu_rocdl_mfma_f32_32x32x8bf16_1k(%arg0: vector<2xi32>, %arg1: vector<2xi32>, %arg2: vector<16xf32>) -> vector<16xf32> attributes {func.inline = "always"} {
     %a_i16 = vector.bitcast %arg0 : vector<2xi32> to vector<4xi16>
     %b_i16 = vector.bitcast %arg1 : vector<2xi32> to vector<4xi16>

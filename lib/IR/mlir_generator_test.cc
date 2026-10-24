@@ -1694,6 +1694,21 @@ def mfma_bf16_test(a: S.Tensor((2,), S.u32),
     RunMLIRGenerationTest(kSourceCode);
 }
 
+TEST_F(MLIRGeneratorTest, GenerateMLIRAMDGPUMFMA16x16x32BF16) {
+    static const std::string kSourceCode = R"""""(
+import avelang
+import avelang.language as S
+
+@avelang.jit
+def mfma_bf16_k32_test(a: S.Tensor((4,), S.u32),
+                       b: S.Tensor((4,), S.u32),
+                       c: S.Tensor((4,), S.f32)):
+    c = S.amdgpu.mfma_16x16x32_bf16_f32(a, b, c)
+)""""";
+
+    RunMLIRGenerationTest(kSourceCode);
+}
+
 TEST_F(MLIRGeneratorTest, GenerateMLIRAMDGPUMFMABF16Alias) {
     static const std::string kSourceCode = R"""""(
 import avelang

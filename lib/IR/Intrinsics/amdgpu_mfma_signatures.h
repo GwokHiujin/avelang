@@ -76,6 +76,17 @@ struct MFMAConfig {
                 VectorElemKind::F32,
             },
             {
+                "mfma_16x16x32_bf16_f32",
+                16,
+                16,
+                32,
+                "bf16",
+                "f32",
+                "rocdl_mfma_f32_16x16x32_bf16",
+                VectorElemKind::BF16,
+                VectorElemKind::F32,
+            },
+            {
                 "mfma_f32_16x16x16_bf16",
                 16,
                 16,
